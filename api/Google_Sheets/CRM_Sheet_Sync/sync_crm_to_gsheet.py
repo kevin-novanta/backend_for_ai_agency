@@ -45,6 +45,10 @@ def sync_to_gsheet():
             sheet = client.open_by_key(GOOGLE_SHEET_ID)
             worksheet = sheet.worksheet(WORKSHEET_NAME)
 
+            # Clear columns B to K (2 to 11) except the header row
+            worksheet.batch_clear(["B2:K"])
+            logging.info("🧹 Cleared columns B to K (Client Info Range) before syncing.")
+
             # Prepare data
             df = df.fillna("")  # Replace NaN with empty strings
 

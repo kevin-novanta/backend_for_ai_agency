@@ -8,3 +8,5 @@ sleep 2
 
 # Start the sync script in the background with logging
 nohup python3 /Users/kevinnovanta/backend_for_ai_agency/api/Google_Sheets/Lead_Registry_Sync/sync_to_google_sheet.py --loop >> /Users/kevinnovanta/backend_for_ai_agency/api/Google_Sheets/Lead_Registry_Sync/logs/sync_log.txt 2>&1 &
+
+tail -f /Users/kevinnovanta/backend_for_ai_agency/api/Google_Sheets/Lead_Registry_Sync/logs/sync_log.txt

@@ -32,7 +32,7 @@ def load_csv(path):
     return pd.DataFrame()
 
 def save_csv(df, path):
-    df.to_csv(path, index=False)
+    df.to_csv(path, index=False, quoting=1)  # quoting=1 ensures all non-numeric fields are quoted
 
 def sync_registry_to_crm():
     try:
@@ -50,22 +50,24 @@ def sync_registry_to_crm():
                     crm_df[col] = ""
             crm_df = crm_df[CRM_COLUMNS]
 
-        # Ensure registry_df has the same number of columns as updatable columns
-        registry_values = registry_df.values.tolist()
-        new_rows = pd.DataFrame(columns=CRM_COLUMNS)
+        # Truncate crm_df to match registry_df length
+        crm_df = crm_df[:len(registry_df)].copy()
 
-        for row in registry_values:
-            padded_row = row + [""] * (len(UPDATABLE_COLUMNS) - len(row))
-            row_dict = {col: val if col in UPDATABLE_COLUMNS else "" for col, val in zip(CRM_COLUMNS, [""] * len(CRM_COLUMNS))}
-            for i, col in enumerate(UPDATABLE_COLUMNS):
-                row_dict[col] = padded_row[i]
-            new_rows = pd.concat([new_rows, pd.DataFrame([row_dict])], ignore_index=True)
+        # Ensure enough rows in crm_df to accommodate registry data
+        while len(crm_df) < len(registry_df):
+            empty_row = pd.Series({col: "" for col in CRM_COLUMNS})
+            crm_df = pd.concat([crm_df, pd.DataFrame([empty_row])], ignore_index=True)
 
-        # Append new rows and preserve all other CRM fields
-        print(f"✅ Adding {len(new_rows)} new leads without overwriting existing fields.")
-        updated_df = pd.concat([crm_df, new_rows], ignore_index=True)
-        updated_df = updated_df.reindex(columns=CRM_COLUMNS)  # Ensure column order including Copywriting Document Link
-        save_csv(updated_df, CRM_PATH)
+        # Overwrite only non-empty values in the updatable columns
+        for col in UPDATABLE_COLUMNS:
+            if col in registry_df.columns:
+                for i in range(len(registry_df)):
+                    new_val = registry_df.at[i, col]
+                    if pd.notna(new_val) and str(new_val).strip() != "":
+                        crm_df.at[i, col] = new_val
+
+        crm_df = crm_df.reindex(columns=CRM_COLUMNS)  # Ensure column order including Copywriting Document Link
+        save_csv(crm_df, CRM_PATH)
 
     except Exception as e:
         print(f"❌ Error during sync: {e}")

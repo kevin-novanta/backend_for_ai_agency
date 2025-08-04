@@ -4,7 +4,7 @@ import os
 import sys
 
 TARGET_COLUMNS = [
-    "Client",
+    "Client Name",
     "Email",
     "First Name",
     "Last Name",
@@ -28,6 +28,7 @@ def normalize_column_names(df):
     df.columns = [col.strip().lower() for col in df.columns]
     # Mapping from possible variants to target columns
     col_map = {
+        "client name": "Client name",
         "email": "Email",
         "e-mail": "Email",
         "mail": "Email",
@@ -107,7 +108,7 @@ def score_lead(row):
 def parse_and_format_leads(raw_csv_path, client_name):
     df = pd.read_csv(raw_csv_path)
     df = normalize_column_names(df)
-    df["Client"] = client_name
+    # Remove setting Client Name here; only fill in if blank during merge
     # --- Clean and format Custom 1, 2, 3 columns ---
     # Custom 1: Keep only valid URLs
     df["Custom 1"] = df["Custom 1"].apply(lambda x: x if isinstance(x, str) and x.startswith("http") else "")
@@ -141,32 +142,36 @@ def parse_and_format_leads(raw_csv_path, client_name):
     # Clean company names (removed as requested)
     # Deduplicate
     df.drop_duplicates(inplace=True)
-    # Append to registry
+    # Append-only approach to avoid touching old rows
     registry_path = "/Users/kevinnovanta/backend_for_ai_agency/data/leads/Lead_Registry/leads_registry.csv"
+    existing_emails = set()
+
     if os.path.exists(registry_path):
         try:
-            registry_df = pd.read_csv(registry_path)
-            if registry_df.empty:
-                raise ValueError("Empty registry file.")
-            registry_df = normalize_column_names(registry_df)
-        except (pd.errors.EmptyDataError, ValueError):
-            registry_df = pd.DataFrame(columns=TARGET_COLUMNS)
-    else:
-        registry_df = pd.DataFrame(columns=TARGET_COLUMNS)
+            with open(registry_path, "r", encoding="utf-8") as f:
+                for line in f.readlines():
+                    parts = line.strip().split(",")
+                    if len(parts) >= 2:
+                        existing_emails.add(parts[1].strip().lower())  # Assuming Email is second column
+        except Exception as e:
+            print(f"⚠️ Warning while scanning existing CSV: {e}")
 
-    combined_df = pd.concat([registry_df, df], ignore_index=True)
-    combined_df = combined_df.fillna("")
-    combined_df.drop_duplicates(subset=["Email", "Company Name", "Custom 1"], inplace=True)
-    new_leads_count = len(combined_df) - len(registry_df)
-    # Ensure JSON-compliant DataFrame by enforcing empty strings
-    combined_df = combined_df.astype(str).replace("nan", "")
-    combined_df.to_csv(registry_path, index=False)
-    return df, new_leads_count
+    new_rows = []
+    for _, row in df.iterrows():
+        email = str(row["Email"]).strip().lower()
+        if email not in existing_emails:
+            if str(row["Client Name"]).strip() == "":
+                row["Client Name"] = client_name
+            new_rows.append(row)
+
+    if new_rows:
+        pd.DataFrame(new_rows).to_csv(registry_path, mode="a", index=False, header=not os.path.exists(registry_path))
+    return df, len(new_rows)
 
 if __name__ == "__main__":
     client_name = os.environ.get("CLIENT_NAME")
     if not client_name:
         raise ValueError("Client name must be provided as an environment variable 'CLIENT_NAME'.")
-    raw_csv_path = "/Users/kevinnovanta/backend_for_ai_agency/data/exports/Google_Leads/Cleaned_Google_Maps_Data/enriched_data.csv"
+    raw_csv_path = sys.argv[1]
     cleaned_df, added_count = parse_and_format_leads(raw_csv_path, client_name)
     print(f"✅ Saved {len(cleaned_df)} deduplicated and formatted leads to leads_registry.csv.")

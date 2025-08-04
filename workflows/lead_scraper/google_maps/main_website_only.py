@@ -266,7 +266,18 @@ async def enrich_website_data(websites: list, fallback_map: Dict[str, Dict[str, 
                 # Save only exact columns and structure
                 df_partial = pd.DataFrame(enriched)
                 df_partial = df_partial[["Email", "First Name", "Last Name", "Company Name", "Phone Number", "Address", "Custom 1", "Custom 2", "Custom 3"]]
-                df_partial.to_csv(OUTPUT_PATH, index=False)
+
+                def sanitize(text):
+                    return re.sub(r'\s+', ' ', str(text).replace('"', '""')).strip()
+
+                for col in ["Custom 2", "Custom 3"]:
+                    if col in df_partial.columns:
+                        df_partial[col] = df_partial[col].apply(sanitize)
+
+                df_partial.drop_duplicates(subset=["Email", "Custom 1"], inplace=True)
+
+                from csv import QUOTE_ALL
+                df_partial.to_csv(OUTPUT_PATH, index=False, quoting=QUOTE_ALL)
                 print(f"💾 Partial data saved to {OUTPUT_PATH}")
                 counter += 1
                 print(f"✅ Scraped {counter}/{len(websites)} websites")
@@ -314,8 +325,10 @@ async def main():
     # Load URLs from raw Google Maps data CSV
     websites, fallback_map = load_website_links(RAW_INPUT_PATH)
     print(f"Loaded {len(websites)} websites to enrich")
+
+    columns = ["Email", "First Name", "Last Name", "Company Name", "Phone Number", "Address", "Custom 1", "Custom 2", "Custom 3"]
     enriched_data = await enrich_website_data(websites, fallback_map)
-    df_enriched = pd.DataFrame(enriched_data)
+    df_enriched = pd.DataFrame(enriched_data, columns=columns).fillna("")
     df_enriched = df_enriched[["Email", "First Name", "Last Name", "Company Name", "Phone Number", "Address", "Custom 1", "Custom 2", "Custom 3"]]
     df_enriched.to_csv(OUTPUT_PATH, index=False)
     print(f"✅ Enriched website data saved to {OUTPUT_PATH}")

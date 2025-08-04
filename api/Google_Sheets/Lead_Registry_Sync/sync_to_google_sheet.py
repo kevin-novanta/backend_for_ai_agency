@@ -37,10 +37,35 @@ def sync_leads_to_sheet():
         # === LOAD SHEET ===
         sheet = client.open_by_key(SHEET_ID).sheet1
 
+        # === FETCH EXISTING SHEET DATA ===
+        existing_data = sheet.get_all_values()
+        if not existing_data:
+            logging.warning("⚠️ Sheet is empty — skipping deletion check.")
+            existing_df = pd.DataFrame()
+        else:
+            existing_df = pd.DataFrame(existing_data[1:], columns=existing_data[0])
+
         # === LOAD CSV AND PREPARE DATA ===
         import numpy as np
         df = pd.read_csv(CSV_PATH)
+        # Ensure Status column is present
+        if "Status" not in df.columns:
+            df["Status"] = ""
         df = df.replace({np.nan: ""})
+
+        # === CLEAN AND PREPARE FOR COMPARISON ===
+        # Only keep CSV columns that exist in the Google Sheet
+        valid_columns = existing_data[0] if existing_data else df.columns.tolist()
+        df = df[[col for col in df.columns if col in valid_columns]]
+
+        df["Email"] = df["Email"].astype(str).str.strip()
+        existing_df["Email"] = existing_df["Email"].astype(str).str.strip()
+
+        df = df[df["Email"] != ""]
+        existing_df = existing_df[existing_df["Email"] != ""]
+
+        csv_emails = set(df["Email"])
+        sheet_emails = set(existing_df["Email"])
 
         data = [df.columns.tolist()] + df.values.tolist()
 
@@ -49,7 +74,18 @@ def sync_leads_to_sheet():
 
         if has_data:
             logging.info(f"🔄 Syncing {len(data)-1} rows to Google Sheet...")
-            sheet.update(range_name="A1", values=data)
+            # Determine the range to overwrite (e.g. A1:Z1000 depending on data size)
+            end_col_letter = chr(ord('A') + len(data[0]) - 1)
+            end_row = len(data)
+            update_range = f"A1:{end_col_letter}{end_row}"
+
+            # Clear values without affecting formatting
+            cell_list = sheet.range(update_range)
+            for cell in cell_list:
+                cell.value = ''
+            sheet.update_cells(cell_list)
+
+            sheet.update(values=data, range_name=update_range)
             logging.info("✅ CSV successfully synced to Google Sheet.")
             print("✅ CSV successfully synced to Google Sheet.")
         else:
