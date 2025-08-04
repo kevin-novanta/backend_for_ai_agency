@@ -122,9 +122,6 @@ async def scrape_website_info_async(website_url: str, fallback_data: Dict[str, A
             )
             page = await context.new_page()
             await page.goto(website_url, wait_until="networkidle", timeout=20000)
-            screenshot_path = "/Users/kevinnovanta/backend_for_ai_agency/Debugging/GoogleMaps_Scraper_Debugging/first_page_debug.png"
-            await page.screenshot(path=screenshot_path, full_page=True)
-            print(f"[+] Screenshot saved: {screenshot_path}")
             print(f"[+] Navigated to {website_url}")
             await asyncio.sleep(1.5)
             html = await page.content()

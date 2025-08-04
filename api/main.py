@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import leads, stats
+from api.routes import sync  # New route for CRM > Google Sheet sync
 from api.Google_Sheets.Lead_Registry_Sync import sync_routes
 
 app = FastAPI(
@@ -23,6 +24,7 @@ app.add_middleware(
 app.include_router(leads.router, prefix="/leads", tags=["Leads"])
 app.include_router(stats.router, prefix="/stats", tags=["Stats"])
 app.include_router(sync_routes.router, prefix="/sync", tags=["Sync"])
+app.include_router(sync.router, prefix="/crm-sync", tags=["CRM Sync"])
 
 # Optional root route
 @app.get("/")
