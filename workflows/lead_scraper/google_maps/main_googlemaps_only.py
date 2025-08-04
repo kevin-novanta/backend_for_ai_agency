@@ -1,107 +1,23 @@
-from typing import List, Dict, Any, Optional
-import requests
-from typing import Dict, Any, Optional, List
-EXPORT_PATH_ENRICHED = "/Users/kevinnovanta/backend_for_ai_agency/data/exports/Google_Leads/Cleaned_Google_Maps_Data/enriched_data.csv"
-def scrape_website_info(website_url: str, fallback_data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Scrape website for emails, phone numbers, offer types, and social/company links.
-    fallback_data: dict with at least {name, address, category}
-    Returns dict with: Email, First Name, Last Name, Company Name, Phone Number, Address, Custom 1, Custom 2, Custom 3
-    """
-    import re
-    from bs4 import BeautifulSoup
-    import requests
-    def extract_emails(text: str) -> List[str]:
-        # Basic email regex
-        return re.findall(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", text)
 
-    def extract_phones(text: str) -> List[str]:
-        # US/international phone regex (very basic)
-        return re.findall(r"(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{2,4}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}", text)
-
-    def extract_offer_types(soup: BeautifulSoup) -> str:
-        # Look for meta tags or about sections
-        meta = soup.find("meta", attrs={"name": "description"})
-        if meta and meta.get("content"):
-            return meta["content"][:100]
-        about = soup.find(string=re.compile(r"about", re.I))
-        if about:
-            return about.strip()[:100]
-        return ""
-
-    def extract_social_links(soup: BeautifulSoup) -> List[str]:
-        links = []
-        for a in soup.find_all("a", href=True):
-            href = a["href"].lower()
-            if any(kw in href for kw in ["linkedin", "facebook", "instagram", "twitter", "company"]):
-                links.append(a["href"])
-        return links
-
-    # Defaults
-    result = {
-        "Email": "",
-        "First Name": "",
-        "Last Name": "",
-        "Company Name": fallback_data.get("name", ""),
-        "Phone Number": "",
-        "Address": fallback_data.get("address", ""),
-        "Custom 1": "",
-        "Custom 2": "",
-        "Custom 3": ""
-    }
-    try:
-        resp = requests.get(website_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-        if resp.status_code != 200:
-            return result
-        soup = BeautifulSoup(resp.text, "html.parser")
-        # Dynamically detect if page contains structured business info
-        tag_summary = {}
-        for tag in soup.find_all():
-            tag_name = tag.name
-            tag_summary[tag_name] = tag_summary.get(tag_name, 0) + 1
-        print(f"📊 HTML Tag Summary: {dict(sorted(tag_summary.items(), key=lambda x: -x[1])[:10])}")
-
-        # Prioritize extracting from structured sections
-        text_blocks = []
-        for section in soup.find_all(['footer', 'header', 'section', 'div']):
-            section_text = section.get_text(separator=" ", strip=True)
-            if len(section_text) > 20:
-                text_blocks.append(section_text)
-        combined_text = " ".join(text_blocks)
-        emails = extract_emails(combined_text)
-        phones = extract_phones(combined_text)
-        offer_type = extract_offer_types(soup)
-        socials = extract_social_links(soup)
-
-        if emails:
-            result["Email"] = emails[0]
-        if phones:
-            result["Phone Number"] = phones[0]
-        if offer_type:
-            result["Custom 1"] = offer_type
-        if socials:
-            result["Custom 2"] = socials[0]
-            if len(socials) > 1:
-                result["Custom 3"] = socials[1]
-    except Exception as e:
-        pass
-    return result
-import asyncio
-from playwright.async_api import async_playwright
+# Imports required for the script
 import pandas as pd
 import re
+import asyncio
 from bs4 import BeautifulSoup
-import os
-import concurrent.futures
+from typing import List, Optional, Dict, Any
+from playwright.async_api import async_playwright
 
-# Fixed export path for all scraping runs
+# Constants for export paths
 EXPORT_PATH = "/Users/kevinnovanta/backend_for_ai_agency/data/exports/Google_Leads/Raw_Google_Maps_Data/raw_data.csv"
+EXPORT_PATH_ENRICHED = "/Users/kevinnovanta/backend_for_ai_agency/data/exports/Google_Leads/Cleaned_Google_Maps_Data/enriched_data.csv"
+import pandas as pd
 
 async def scrape_google_maps(search_term, max_results):
-    print(f"🔍 Starting scrape for: '{search_term}'")
+    print(f"[INFO] Starting scrape for: '{search_term}'")
     export_path = EXPORT_PATH
     columns = ["Business Name", "Category", "Address", "Star Rating", "Website"]
     async with async_playwright() as p:
+        print("[INFO] Launching browser...")
         # 🎯 Headless anti-bot evasion: user agent spoof, navigator patching, and headless detection mitigation
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(
@@ -126,8 +42,9 @@ async def scrape_google_maps(search_term, max_results):
           csi: () => {},
         };
         """)
+        print("[INFO] Navigating to Google Maps...")
         await page.goto("https://www.google.com/maps", timeout=60000)
-        print("🌐 Loaded Google Maps")
+        print("[INFO] 🌐 Loaded Google Maps")
 
         await page.wait_for_selector("input#searchboxinput")
         await page.fill("input#searchboxinput", search_term)
@@ -135,17 +52,18 @@ async def scrape_google_maps(search_term, max_results):
         try:
             await page.wait_for_selector('div[role="feed"]', timeout=30000)
         except Exception as e:
-            print(f"[!] Timeout while waiting for search results container for: {search_term}")
+            print(f"[ERROR] Timeout while waiting for search results container for: {search_term} - {e}")
             await page.screenshot(path=f"/Users/kevinnovanta/backend_for_ai_agency/Debugging/{search_term.replace(' ', '_')}_timeout.png")
             # Optional retry attempt
             try:
+                print("[INFO] Attempting retry after timeout...")
                 await page.reload()
                 await page.wait_for_selector('div[role="feed"]', timeout=15000)
             except Exception as e:
-                print(f"[!] Retry failed for: {search_term}")
+                print(f"[ERROR] Retry failed for: {search_term} - {e}")
                 await page.screenshot(path=f"/Users/kevinnovanta/backend_for_ai_agency/Debugging/{search_term.replace(' ', '_')}_retry_failed.png")
                 return []
-        print(f"🔎 Searching for: {search_term}")
+        print(f"[INFO] 🔎 Searching for: {search_term}")
         # Dynamically detect most common listing-like container class
         common_classes = await page.evaluate("""
         () => {
@@ -160,7 +78,7 @@ async def scrape_google_maps(search_term, max_results):
         }
         """)
         most_common_class = common_classes[0][0] if common_classes else "Nv2PK"
-        print(f"🔍 Most common listing class detected: {most_common_class}")
+        print(f"[INFO] 🔍 Most common listing class detected: {most_common_class}")
         await page.wait_for_timeout(5000)
 
         # Add deduplication and continuous scraping logic here
@@ -174,7 +92,7 @@ async def scrape_google_maps(search_term, max_results):
         while True:
             await page.click('div[role="feed"]')  # Try to focus scrollable container
             listings = await page.query_selector_all(f'div.{most_common_class.split(" ")[0]}')
-            print(f"🔄 Found {len(listings)} listings on current scroll")
+            print(f"[INFO] 🔄 Found {len(listings)} listings on current scroll")
 
             for listing in listings:
                 try:
@@ -199,18 +117,25 @@ async def scrape_google_maps(search_term, max_results):
                             break
 
                     seen_businesses.add(name)
-                    data.append({
+                    entry = {
                         "Business Name": name or "N/A",
                         "Category": category,
                         "Address": address,
                         "Star Rating": rating,
                         "Website": website_link
-                    })
-                    print(f"✅ Collected: {name} | {category} | {address} | {rating} | {website_link}")
+                    }
+                    data.append(entry)
+                    print(f"[INFO] ✅ Collected: {name} | {category} | {address} | {rating} | {website_link}")
+
+                    # Write each entry immediately to CSV
+                    print(f"[INFO] Writing data for {name} to image_data.csv")
+                    pd.DataFrame([entry]).to_csv(export_path, mode='a', header=False, index=False)
+                    print(f"[INFO] Successfully wrote data for {name}")
+
                     if len(data) >= max_results:
                         break
                 except Exception as e:
-                    print(f"❌ Failed to parse listing: {e}")
+                    print(f"[ERROR] Failed to parse listing: {e}")
 
             if len(data) >= max_results:
                 break
@@ -233,11 +158,11 @@ async def scrape_google_maps(search_term, max_results):
             """
 
             scroll_result = await page.evaluate(scroll_method_js)
-            print(f"🛠️ Scroll method used: {scroll_result}")
+            print(f"[INFO] 🛠️ Scroll method used: {scroll_result}")
 
             if scroll_result == 'windowScroll':
                 await page.keyboard.press('PageDown')
-                print("🧪 Fallback: Triggered PageDown key")
+                print("[INFO] 🧪 Fallback: Triggered PageDown key")
 
             await page.wait_for_timeout(3000)
 
@@ -252,22 +177,22 @@ async def scrape_google_maps(search_term, max_results):
             else:
                 stable_scrolls = 0
             if stable_scrolls >= 3:
+                print("[INFO] No more new listings detected after multiple scrolls, stopping.")
                 break
             previous_height = current_height
 
-        if data:
-            pd.DataFrame(data).to_csv(export_path, mode='a', header=False, index=False)
-
         await browser.close()
-        print(f"🏁 Finished scraping '{search_term}': Collected {len(data)} entries\n")
+        print(f"[INFO] 🏁 Finished scraping '{search_term}': Collected {len(data)} entries\n")
         return data
 
 # Removed export_to_csv function as per instructions
 
+print("[INFO] Creating CSV files with headers if not present...")
 # Create CSV with headers once
 pd.DataFrame(columns=["Business Name", "Category", "Address", "Star Rating", "Website"]).to_csv(EXPORT_PATH, index=False)
 # Create enriched CSV with headers once per run
 pd.DataFrame(columns=["Email", "First Name", "Last Name", "Company Name", "Phone Number", "Address", "Custom 1", "Custom 2", "Custom 3"]).to_csv(EXPORT_PATH_ENRICHED, index=False)
+print("[INFO] CSV files ready.")
 
 def run_google_maps_scraper(search_terms: List[str], total_results: Optional[int]) -> List[Dict[str, Any]]:
     locations = [
@@ -288,9 +213,9 @@ def run_google_maps_scraper(search_terms: List[str], total_results: Optional[int
     batch_size = 5
 
     def scrape_term(term):
-        print(f"\n--- Processing search term: '{term}' ---")
+        print(f"\n[INFO] --- Processing search term: '{term}' ---")
         result = asyncio.run(scrape_google_maps(term, per_term))
-        print(f"🔢 Scraped {len(result)} businesses for '{term}'")
+        print(f"[INFO] 🔢 Scraped {len(result)} businesses for '{term}'")
         return result
 
     combined_queries = []
@@ -299,10 +224,11 @@ def run_google_maps_scraper(search_terms: List[str], total_results: Optional[int
             full_query = f"{term} in {location}"
             combined_queries.append(full_query)
 
-    print(f"📈 Total combined search queries to process: {len(combined_queries)}")
+    print(f"[INFO] 📈 Total combined search queries to process: {len(combined_queries)}")
 
     for i in range(0, len(combined_queries), batch_size):
         current_batch = combined_queries[i:i + batch_size]
+        print(f"[INFO] Processing batch {i // batch_size + 1} with {len(current_batch)} queries...")
         with concurrent.futures.ThreadPoolExecutor(max_workers=batch_size) as executor:
             futures = [executor.submit(scrape_term, query) for query in current_batch]
             for future in concurrent.futures.as_completed(futures):
@@ -312,42 +238,11 @@ def run_google_maps_scraper(search_terms: List[str], total_results: Optional[int
 
     # Count total websites to scrape for enrichment
     total_websites_to_scrape = sum(1 for entry in all_results if entry.get("Website", "") and entry.get("Website", "") != "N/A")
-    print(f"📦 Total raw entries scraped: {len(all_results)}")
-    print(f"🌐 Total websites to parse for data enrichment: {total_websites_to_scrape}")
+    print(f"[INFO] 📦 Total raw entries scraped: {len(all_results)}")
+    print(f"[INFO] 🌐 Total websites to parse for data enrichment: {total_websites_to_scrape}")
 
-    def process_enrichment(entry):
-        website = entry.get("Website", "")
-        if website and website != "N/A":
-            if website in seen_websites:
-                return None
-            fallback_data = {
-                "name": entry.get("Business Name", ""),
-                "address": entry.get("Address", ""),
-                "category": entry.get("Category", "")
-            }
-            enriched = scrape_website_info(website, fallback_data)
-            if enriched["Email"]:
-                return enriched
-        return None
-
-    seen_websites = set()
-    enriched_results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(process_enrichment, entry) for entry in all_results]
-        for i, future in enumerate(concurrent.futures.as_completed(futures), start=1):
-            result = future.result()
-            if result:
-                website = result.get("Custom 1", "")
-                if website not in seen_websites:
-                    seen_websites.add(website)
-                    enriched_results.append(result)
-                    print(f"✅ [{len(enriched_results)}/{total_websites_to_scrape}] Enriched: {result}")
-                    pd.DataFrame([result]).to_csv(EXPORT_PATH_ENRICHED, mode='a', header=False, index=False)
-                else:
-                    print(f"⚠️ Duplicate skipped for: {website}")
-            else:
-                print(f"❌ Skipped entry {i} – No email or duplicate.")
-    return enriched_results
+    # Website scraping/enrichment removed in this script.
+    return all_results
 
 if __name__ == "__main__":
     search_input = input("Enter your search terms (comma-separated): ")

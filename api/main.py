@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import leads, stats
+from api.Google_Sheets.Lead_Registry_Sync import sync_routes
 
 app = FastAPI(
     title="AI Workflow Agency API",
@@ -21,6 +22,7 @@ app.add_middleware(
 # Include routers
 app.include_router(leads.router, prefix="/leads", tags=["Leads"])
 app.include_router(stats.router, prefix="/stats", tags=["Stats"])
+app.include_router(sync_routes.router, prefix="/sync", tags=["Sync"])
 
 # Optional root route
 @app.get("/")

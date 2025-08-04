@@ -1,8 +1,10 @@
 import pandas as pd
 import re
 import os
+import sys
 
 TARGET_COLUMNS = [
+    "Client",
     "Email",
     "First Name",
     "Last Name",
@@ -102,9 +104,32 @@ def score_lead(row):
         score += 2
     return score
 
-def parse_and_format_leads(raw_csv_path):
+def parse_and_format_leads(raw_csv_path, client_name):
     df = pd.read_csv(raw_csv_path)
     df = normalize_column_names(df)
+    df["Client"] = client_name
+    # --- Clean and format Custom 1, 2, 3 columns ---
+    # Custom 1: Keep only valid URLs
+    df["Custom 1"] = df["Custom 1"].apply(lambda x: x if isinstance(x, str) and x.startswith("http") else "")
+
+    # Custom 2: Preserve full description, just strip whitespace if it's a string
+    df["Custom 2"] = df["Custom 2"].apply(lambda x: x.strip() if isinstance(x, str) else "")
+
+    # Custom 3: Extract keyword-like industry/niche
+    import string
+    def extract_industry(text):
+        if not isinstance(text, str):
+            return ""
+        # Convert to lowercase, remove punctuation
+        text = text.lower().translate(str.maketrans('', '', string.punctuation))
+        # Tokenize
+        tokens = text.split()
+        # Pick the first 1-2 keywords that are not generic
+        blacklist = {"services", "solutions", "llc", "inc", "company", "business"}
+        keywords = [t for t in tokens if t not in blacklist and len(t) > 2]
+        return keywords[0] if keywords else ""
+
+    df["Custom 3"] = df["Custom 3"].apply(extract_industry)
     # Filter out rows without valid emails
     df = df[df["Email"].apply(is_valid_email)]
     # Drop non-B2B leads
@@ -130,12 +155,18 @@ def parse_and_format_leads(raw_csv_path):
         registry_df = pd.DataFrame(columns=TARGET_COLUMNS)
 
     combined_df = pd.concat([registry_df, df], ignore_index=True)
+    combined_df = combined_df.fillna("")
     combined_df.drop_duplicates(subset=["Email", "Company Name", "Custom 1"], inplace=True)
     new_leads_count = len(combined_df) - len(registry_df)
+    # Ensure JSON-compliant DataFrame by enforcing empty strings
+    combined_df = combined_df.astype(str).replace("nan", "")
     combined_df.to_csv(registry_path, index=False)
     return df, new_leads_count
 
 if __name__ == "__main__":
+    client_name = os.environ.get("CLIENT_NAME")
+    if not client_name:
+        raise ValueError("Client name must be provided as an environment variable 'CLIENT_NAME'.")
     raw_csv_path = "/Users/kevinnovanta/backend_for_ai_agency/data/exports/Google_Leads/Cleaned_Google_Maps_Data/enriched_data.csv"
-    cleaned_df, added_count = parse_and_format_leads(raw_csv_path)
+    cleaned_df, added_count = parse_and_format_leads(raw_csv_path, client_name)
     print(f"✅ Saved {len(cleaned_df)} deduplicated and formatted leads to leads_registry.csv.")
