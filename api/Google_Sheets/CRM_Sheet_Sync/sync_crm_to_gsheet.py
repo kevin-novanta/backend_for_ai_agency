@@ -45,13 +45,52 @@ def sync_to_gsheet():
             sheet = client.open_by_key(GOOGLE_SHEET_ID)
             worksheet = sheet.worksheet(WORKSHEET_NAME)
 
-            # Clear current worksheet
-            worksheet.clear()
-
             # Prepare data
             df = df.fillna("")  # Replace NaN with empty strings
-            rows = [df.columns.values.tolist()] + df.values.tolist()
-            worksheet.update(values=rows, range_name="A1")
+
+            # Get existing data from worksheet
+            existing_data = worksheet.get_all_values()
+            if not existing_data:
+                # If worksheet is empty, add header row
+                worksheet.append_row(df.columns.values.tolist())
+                existing_data = worksheet.get_all_values()
+
+            header = existing_data[0]
+            data_rows = existing_data[1:]
+
+            # Map header to column index
+            header_index = {col: idx for idx, col in enumerate(header)}
+
+            # Columns to update
+            update_columns = ["Email", "First Name", "Last Name", "Company Name", "Phone Number", "Address", "Website / Profile Link", "Offer", "Niche"]
+
+            # Map email to row number in sheet (1-based, including header)
+            email_to_row = {}
+            for i, row in enumerate(data_rows, start=2):  # start=2 because header is row 1
+                if len(row) > header_index.get("Email", -1):
+                    email_to_row[row[header_index["Email"]].strip().lower()] = i
+
+            for _, csv_row in df.iterrows():
+                email = str(csv_row.get("Email", "")).strip().lower()
+                if not email:
+                    continue  # skip rows without email
+
+                if email in email_to_row:
+                    # Update existing row
+                    row_number = email_to_row[email]
+                    for col_name in update_columns:
+                        if col_name in header:
+                            col_index = header_index[col_name] + 1  # gspread is 1-indexed for columns
+                            value = str(csv_row.get(col_name, ""))
+                            worksheet.update_cell(row_number, col_index, value)
+                else:
+                    # Append new row
+                    new_row = [""] * len(header)
+                    for col_name in update_columns:
+                        if col_name in header:
+                            idx = header_index[col_name]
+                            new_row[idx] = str(csv_row.get(col_name, ""))
+                    worksheet.append_row(new_row)
 
             logging.info("✅ CSV successfully synced to Google Sheet.")
             logging.info(f"⏱️ Waiting {SYNC_INTERVAL} seconds for the next sync cycle...")

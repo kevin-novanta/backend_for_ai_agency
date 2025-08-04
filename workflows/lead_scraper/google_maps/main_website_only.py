@@ -23,46 +23,59 @@ def extract_meta(soup: BeautifulSoup):
 def extract_offer_text(soup: BeautifulSoup):
     offer_texts = []
 
-    # 1. Check meta tags for description-like content
+    # 1. Check meta tags for description-like content (early in page source)
     meta_props = [
         {"name": "description"},
         {"name": "keywords"},
         {"property": "og:description"},
         {"name": "twitter:description"},
     ]
-    for props in meta_props:
+    for idx, props in enumerate(meta_props):
         meta = soup.find("meta", attrs=props)
         if meta and meta.get("content") and len(meta["content"]) > 30:
-            offer_texts.append(meta["content"].strip())
+            offer_texts.append((meta["content"].strip(), idx))
 
-    # 2. Extract from class-based tags with useful keywords
+    # 2. Extract from class-based tags with useful keywords, store position
     semantic_keywords = ["desc", "about", "service", "industry", "summary", "company", "bio"]
-    for tag in soup.find_all(["div", "span", "p"], class_=True):
+    for i, tag in enumerate(soup.find_all(["div", "span", "p"], class_=True)):
         cls = tag.get("class")
         if cls and any(any(k in c.lower() for k in semantic_keywords) for c in cls):
             txt = tag.get_text(strip=True)
             if len(txt) > 30:
-                offer_texts.append(txt)
+                offer_texts.append((txt, i))
 
-    # 3. Extract from visible tags with keywords
+    # 3. Extract from visible tags with keywords, store position
     keywords = [
         "service", "offer", "about", "solution", "team", "who we are", "what we do",
         "our mission", "faq", "contact", "company", "vision", "product", "features", "benefits"
     ]
     tags_to_check = ['h1', 'h2', 'h3', 'p', 'li', 'span']
-    for tag in soup.find_all(tags_to_check):
+    for i, tag in enumerate(soup.find_all(tags_to_check)):
         txt = tag.get_text(separator=" ", strip=True)
         if any(kw in txt.lower() for kw in keywords) and len(txt) > 30:
-            offer_texts.append(txt)
+            offer_texts.append((txt, i))
 
     # 4. Fallback: Large content blocks
-    for blk in soup.find_all(['section', 'div', 'main']):
+    for i, blk in enumerate(soup.find_all(['section', 'div', 'main'])):
         txt = blk.get_text(separator=" ", strip=True)
         if any(kw in txt.lower() for kw in keywords) and len(txt) > 50:
-            offer_texts.append(txt[:300])
+            offer_texts.append((txt[:300], i))
 
-    # Deduplicate and return
-    return list(set([t for t in offer_texts if len(t) > 30]))
+    # Score and sort offer_texts by priority
+    def score_text(entry):
+        text, index = entry
+        score = 0
+        if len(text) > 50:
+            score += 2
+        if len(text) > 100:
+            score += 2
+        if any(k in text.lower() for k in ["about", "services", "industry", "solution", "platform", "software"]):
+            score += 3
+        score += max(0, 10 - index)  # prioritize topmost elements
+        return score
+
+    scored_texts = sorted([(t, i) for i, t in enumerate([t for t, _ in offer_texts])], key=score_text, reverse=True)
+    return [t for t, _ in scored_texts]
 
 def get_visible_text_blocks(soup: BeautifulSoup):
     blocks = []
@@ -104,7 +117,7 @@ async def scrape_website_info_async(website_url: str, fallback_data: Dict[str, A
     }
     found_emails = set()
     found_phones = set()
-    found_offers = set()
+    found_offers = []
     found_meta_descs = set()
     found_meta_keywords = set()
     all_blocks = []
@@ -137,7 +150,7 @@ async def scrape_website_info_async(website_url: str, fallback_data: Dict[str, A
             if kw:
                 found_meta_keywords.add(kw)
             offers = extract_offer_text(soup)
-            found_offers.update(offers)
+            found_offers.extend(offers)
             print(f"[+] Found {len(offers)} offer-related text blocks")
             for block in blocks:
                 found_emails.update(extract_emails(block))
@@ -177,7 +190,7 @@ async def scrape_website_info_async(website_url: str, fallback_data: Dict[str, A
                     if kw:
                         found_meta_keywords.add(kw)
                     offers = extract_offer_text(soup)
-                    found_offers.update(offers)
+                    found_offers.extend(offers)
                     for block in blocks:
                         found_emails.update(extract_emails(block))
                         found_phones.update(extract_phones(block))
@@ -209,18 +222,14 @@ async def scrape_website_info_async(website_url: str, fallback_data: Dict[str, A
     # Custom 1 is from fallback_data already set
     # Custom 2: Offer Type from about or services section, prefer longer/more descriptive
     if found_offers:
-        result["Custom 2"] = sorted(found_offers, key=len, reverse=True)[0]
+        result["Custom 2"] = found_offers[0]
+        if len(found_offers) > 1:
+            result["Custom 3"] = found_offers[1]
     elif found_meta_descs:
         result["Custom 2"] = sorted(found_meta_descs, key=len, reverse=True)[0]
-    # Custom 3: alternate offer or meta description
-    alt = ""
-    if len(found_offers) > 1:
-        alt = sorted(found_offers)[1]
-    elif len(found_meta_descs) > 1:
-        alt = sorted(found_meta_descs)[1]
-    if alt:
-        result["Custom 3"] = alt
-
+    else:
+        result["Custom 2"] = ""
+        result["Custom 3"] = ""
     import usaddress
 
     try:
