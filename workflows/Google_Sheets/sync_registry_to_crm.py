@@ -10,7 +10,7 @@ SYNC_INTERVAL = 30  # seconds
 # Explicit full CRM column list
 CRM_COLUMNS = [
     "Copywriting Document Link", "Client Name", "Email", "First Name", "Last Name",
-    "Company Name", "Phone Number", "Address", "Website / Profile Link", "Offer", "Niche",
+    "Company Name", "Phone Number", "Address", "Custom 1", "Custom 2", "Custom 3",
     "Campaign Type", "Sequence Stage", "Messaging Status", "Responded?", "Replied Timestamp",
     "Qualified?", "Last Message Sent Timestamp", "Added To Retargeting Campaign?",
     "Retargeting Stage", "Retargeting Status", "Retargeting Responded?",
@@ -21,7 +21,7 @@ CRM_COLUMNS = [
 
 UPDATABLE_COLUMNS = [
     "Client Name", "Email", "First Name", "Last Name", "Company Name",
-    "Phone Number", "Address", "Website / Profile Link", "Offer", "Niche"
+    "Phone Number", "Address", "Custom 1", "Custom 2", "Custom 3"
 ]
 
 assert CRM_COLUMNS[0] == "Copywriting Document Link", "First column must be Copywriting Document Link"

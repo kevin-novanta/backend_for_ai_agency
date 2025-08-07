@@ -7,4 +7,7 @@ pkill -f sync_crm_to_gsheet.py
 sleep 2
 
 # Start the CRM sync script in the background with logging
+
 nohup python3 /Users/kevinnovanta/backend_for_ai_agency/api/Google_Sheets/CRM_Sheet_Sync/sync_crm_to_gsheet.py >> /Users/kevinnovanta/backend_for_ai_agency/api/Google_Sheets/CRM_Sheet_Sync/logs/sync_output.log 2>&1 &
+
+tail -f /Users/kevinnovanta/backend_for_ai_agency/api/Google_Sheets/CRM_Sheet_Sync/logs/sync_output.log

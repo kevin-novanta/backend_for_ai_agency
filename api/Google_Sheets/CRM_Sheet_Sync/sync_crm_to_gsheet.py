@@ -3,6 +3,8 @@ import pandas as pd
 import time
 from google.oauth2.service_account import Credentials
 import logging
+from gspread.utils import rowcol_to_a1
+import traceback
 
 # Setup logging
 logging.basicConfig(
@@ -15,11 +17,11 @@ logging.basicConfig(
 )
 
 # === CONFIG ===
-CSV_PATH = "data/leads/CRM_Leads/CRM_leads.csv"
+CSV_PATH = "/Users/kevinnovanta/backend_for_ai_agency/data/leads/CRM_Leads/CRM_leads.csv"
 GOOGLE_SHEET_ID = "188Z8BYrbnt4Many31xXHs7H7FF2Crf0Zf10u7MvsFjo"
 WORKSHEET_NAME = "Sheet1"
-SYNC_INTERVAL = 30  # seconds
-CREDENTIALS_PATH = "Creds/google_sheets_key.json"
+SYNC_INTERVAL = 90  # seconds
+CREDENTIALS_PATH = "/Users/kevinnovanta/backend_for_ai_agency/Creds/google_sheets_key.json"
 
 def load_csv(csv_path):
     try:
@@ -37,6 +39,7 @@ def sync_to_gsheet():
     while True:
         try:
             df = load_csv(CSV_PATH)
+            logging.info(f"📊 Loaded {len(df)} rows from CSV")
             if df.empty:
                 logging.info("⚠️ CSV is empty, skipping sync.")
                 time.sleep(SYNC_INTERVAL)
@@ -46,8 +49,8 @@ def sync_to_gsheet():
             worksheet = sheet.worksheet(WORKSHEET_NAME)
 
             # Clear columns B to K (2 to 11) except the header row
-            worksheet.batch_clear(["B2:K"])
-            logging.info("🧹 Cleared columns B to K (Client Info Range) before syncing.")
+            worksheet.batch_clear(["L2:AZ"])
+            logging.info("🧹 Cleared columns L@ to AZ (Logic Range) before syncing.")
 
             # Prepare data
             df = df.fillna("")  # Replace NaN with empty strings
@@ -61,12 +64,23 @@ def sync_to_gsheet():
 
             header = existing_data[0]
             data_rows = existing_data[1:]
+            logging.info(f"📄 Loaded {len(data_rows)} existing rows from Google Sheet")
 
             # Map header to column index
             header_index = {col: idx for idx, col in enumerate(header)}
 
-            # Columns to update
-            update_columns = ["Email", "First Name", "Last Name", "Company Name", "Phone Number", "Address", "Website / Profile Link", "Offer", "Niche"]
+            # Columns to update (aligned with Google Sheet target columns)
+            update_columns = [
+                "Campaign Type", "Sequence Stage", "Messaging Status", "Responded?", "Replied Timestamp", "Qualified?",
+                "Last Message Sent Timestamp", "Added To Retargeting Campaign?", "Retargeting Stage", "Retargeting Status",
+                "Retargeting Responded?", "Retargetin Replied Time Stamp", "Last Message Sent Time Stamp", "Recycled?",
+                "Lead Stage", "Last Contacted Date", "Campaign Assigned", "Outreach Channel", "Owner / Assigned To",
+                "Opener Email", "Opener Time Sent", "Opener Date Semt", "Follow Up 1 Email", "Follow Up 1 Time Sent",
+                "Follow Up 1 Date Sent", "Follow Up 2 Email", "Follow Up 2 Time Sent", "Follow Up 2 Date Sent",
+                "Follow Up 3 Email", "Follow Up 3 Time Sent", "Follow Up 3 Date Sent", "Follow Up 4 Email",
+                "Follow Up 4 Time Sent", "Follow Up 4 Date Sent", "Follow Up 5 Email", "Follow Up 5 Time Sent",
+                "Follow Up 5 Date Sent", "Follow Up 6 Email", "Follow Up 6 Time Sent", "Follow Up 6 Date Sent", "Notes"
+            ]
 
             # Map email to row number in sheet (1-based, including header)
             email_to_row = {}
@@ -74,32 +88,57 @@ def sync_to_gsheet():
                 if len(row) > header_index.get("Email", -1):
                     email_to_row[row[header_index["Email"]].strip().lower()] = i
 
+            updates = []
+            appends = []
+
             for _, csv_row in df.iterrows():
                 email = str(csv_row.get("Email", "")).strip().lower()
                 if not email:
-                    continue  # skip rows without email
+                    continue
+
+                row_values = []
+                for col_name in update_columns:
+                    row_values.append(str(csv_row.get(col_name, "")))
 
                 if email in email_to_row:
-                    # Update existing row
                     row_number = email_to_row[email]
-                    for col_name in update_columns:
-                        if col_name in header:
-                            col_index = header_index[col_name] + 1  # gspread is 1-indexed for columns
-                            value = str(csv_row.get(col_name, ""))
-                            worksheet.update_cell(row_number, col_index, value)
+                    start_col = 2  # Column B
+                    end_col = start_col + len(update_columns) - 1
+                    start_cell = rowcol_to_a1(row_number, start_col)
+                    end_cell = rowcol_to_a1(row_number, end_col)
+                    cell_range = f"{WORKSHEET_NAME}!{start_cell}:{end_cell}"
+                    logging.debug(f"Calculated update range: {cell_range}")
+                    updates.append({
+                        "range": cell_range,
+                        "values": [row_values]
+                    })
                 else:
-                    # Append new row
-                    new_row = [""] * len(header)
-                    for col_name in update_columns:
-                        if col_name in header:
-                            idx = header_index[col_name]
-                            new_row[idx] = str(csv_row.get(col_name, ""))
-                    worksheet.append_row(new_row)
+                    appends.append(row_values)
+
+            logging.info(f"✏️ {len(updates)} rows to update, ➕ {len(appends)} rows to append")
+
+            # Perform updates
+            if updates:
+                worksheet.batch_update([{
+                    "range": u["range"],
+                    "values": u["values"]
+                } for u in updates])
+                logging.info("✅ Batch update complete.")
+                time.sleep(1.5)
+
+            # Perform appends in chunks
+            CHUNK_SIZE = 500
+            for i in range(0, len(appends), CHUNK_SIZE):
+                chunk = appends[i:i + CHUNK_SIZE]
+                padded_chunk = [[""] * 11 + row for row in chunk]
+                worksheet.append_rows(padded_chunk)
+                logging.info(f"✅ Appended rows {i + 1} to {i + len(chunk)}")
+                time.sleep(1.5)
 
             logging.info("✅ CSV successfully synced to Google Sheet.")
             logging.info(f"⏱️ Waiting {SYNC_INTERVAL} seconds for the next sync cycle...")
         except Exception as e:
-            logging.error(f"❌ Sync error: {e}")
+            logging.error("❌ Sync error:\n" + traceback.format_exc())
 
         time.sleep(SYNC_INTERVAL)
 

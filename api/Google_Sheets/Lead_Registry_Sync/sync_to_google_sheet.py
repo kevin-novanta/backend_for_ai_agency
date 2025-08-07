@@ -37,6 +37,11 @@ def sync_leads_to_sheet():
         # === LOAD SHEET ===
         sheet = client.open_by_key(SHEET_ID).sheet1
 
+        # === CLEAR DATA ROWS BEFORE SYNC (PRESERVE HEADER) ===
+        sheet.batch_clear(["A2:Z"])
+        logging.info("🧨 Cleared data rows (A2:Z), header preserved.")
+        time.sleep(2)
+
         # === FETCH EXISTING SHEET DATA ===
         existing_data = sheet.get_all_values()
         if not existing_data:
@@ -48,49 +53,74 @@ def sync_leads_to_sheet():
         # === LOAD CSV AND PREPARE DATA ===
         import numpy as np
         df = pd.read_csv(CSV_PATH)
+        logging.info(f"📊 Loaded {len(df)} rows from CSV")
+        # Drop rows where all columns except "Copywriting Document Link" are NaN or empty
+        df = df.dropna(how='all', subset=[col for col in df.columns if col != "Copywriting Document Link"])
+        logging.info(f"🧹 Cleaned CSV: {len(df)} rows remain after dropping mostly-empty rows")
         # Ensure Status column is present
         if "Status" not in df.columns:
             df["Status"] = ""
         df = df.replace({np.nan: ""})
+        df = df.map(lambda x: x[:49000] if isinstance(x, str) and len(x) > 49000 else x)
 
         # === CLEAN AND PREPARE FOR COMPARISON ===
-        # Only keep CSV columns that exist in the Google Sheet
+        # Only keep CSV columns that exist in the Google Sheet, but always include "Email"
         valid_columns = existing_data[0] if existing_data else df.columns.tolist()
-        df = df[[col for col in df.columns if col in valid_columns]]
+        required_columns = set(valid_columns) | {"Email"}
+        df = df[[col for col in df.columns if col in required_columns]]
 
-        df["Email"] = df["Email"].astype(str).str.strip()
-        existing_df["Email"] = existing_df["Email"].astype(str).str.strip()
-
+        # Clean and normalize Email column
+        df["Email"] = df["Email"].astype(str).str.strip().str.lower()
+        existing_df["Email"] = existing_df["Email"].astype(str).str.strip().str.lower()
         df = df[df["Email"] != ""]
         existing_df = existing_df[existing_df["Email"] != ""]
 
-        csv_emails = set(df["Email"])
-        sheet_emails = set(existing_df["Email"])
+        logging.info(f"📄 Loaded {len(existing_df)} existing rows from Google Sheet")
 
-        data = [df.columns.tolist()] + df.values.tolist()
+        # Prepare mapping from Email to row for updates
+        email_to_row = {
+            row["Email"]: idx + 2
+            for idx, row in existing_df.iterrows()
+        }
 
-        # === Only clear & update if there's valid data ===
-        has_data = df.dropna(how="all").shape[0] > 0
+        updates = []
+        appends = []
 
-        if has_data:
-            logging.info(f"🔄 Syncing {len(data)-1} rows to Google Sheet...")
-            # Determine the range to overwrite (e.g. A1:Z1000 depending on data size)
-            end_col_letter = chr(ord('A') + len(data[0]) - 1)
-            end_row = len(data)
-            update_range = f"A1:{end_col_letter}{end_row}"
+        for _, csv_row in df.iterrows():
+            email = str(csv_row.get("Email", "")).strip().lower()
+            if not email:
+                continue
+            row_values = [str(csv_row.get(col, "")) for col in df.columns]
+            if email in email_to_row:
+                row_number = email_to_row[email]
+                end_col_letter = chr(ord('A') + len(row_values) - 1)
+                updates.append({
+                    "range": f"A{row_number}:{end_col_letter}{row_number}",
+                    "values": [row_values]
+                })
+            else:
+                appends.append(row_values)
 
-            # Clear values without affecting formatting
-            cell_list = sheet.range(update_range)
-            for cell in cell_list:
-                cell.value = ''
-            sheet.update_cells(cell_list)
+        logging.info(f"✏️ {len(updates)} rows to update, ➕ {len(appends)} rows to append")
+        print(f"📊 CSV rows: {len(df)}, Sheet rows: {len(existing_df)}, To update: {len(updates)}, To append: {len(appends)}")
 
-            sheet.update(values=data, range_name=update_range)
-            logging.info("✅ CSV successfully synced to Google Sheet.")
-            print("✅ CSV successfully synced to Google Sheet.")
-        else:
-            logging.warning("⚠️ CSV is empty or only contains NaNs — skipping sync.")
-            print("⚠️ CSV is empty or only contains NaNs — skipping sync.")
+        if updates:
+            sheet.batch_update(updates)
+            time.sleep(1.5)
+            logging.info("✅ Batch update complete.")
+            print("✅ Batch update complete.")
+
+        CHUNK_SIZE = 500
+        for i in range(0, len(appends), CHUNK_SIZE):
+            chunk = appends[i:i + CHUNK_SIZE]
+            sheet.append_rows(chunk)
+            time.sleep(1.5)
+            logging.info(f"✅ Appended rows {i + 1} to {i + len(chunk)}")
+            print(f"✅ Appended rows {i + 1} to {i + len(chunk)}")
+
+        if not updates and not appends:
+            logging.info("ℹ️ No updates or appends necessary.")
+            print("ℹ️ No updates or appends necessary.")
     except Exception as e:
         logging.exception("❌ Error syncing CSV to Google Sheet.")
         logging.error(f"❌ Error during sync: {str(e)}")
@@ -100,9 +130,9 @@ def sync_leads_to_sheet():
 if "--loop" in sys.argv:
     while True:
         sync_leads_to_sheet()
-        logging.info("⏱️ Waiting 30 seconds for the next sync cycle...")
-        print("⏱️ Waiting 30 seconds for the next sync cycle...")
-        time.sleep(30)
+        logging.info("⏱️ Waiting 90 seconds for the next sync cycle...")
+        print("⏱️ Waiting 90 seconds for the next sync cycle...")
+        time.sleep(90)
 else:
     sync_leads_to_sheet()
 
