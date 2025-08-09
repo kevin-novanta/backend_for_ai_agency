@@ -16,7 +16,7 @@ def send_email(recipient_email, subject, body):
 
 def run_opener_sequence():
     # Load config
-    control_path = Path(__file__).parent / "opener_controls.json"
+    control_path = Path(__file__).parent / "/Users/kevinnovanta/backend_for_ai_agency/workflows/outreach_sender/Utils/opener_controls.json"
     with open(control_path, "r") as f:
         controls = json.load(f)
 

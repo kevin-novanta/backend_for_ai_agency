@@ -7,7 +7,7 @@ from workflows.outreach_sender.Email_Scripts.send_email import send_email
 
 # === Load controls from JSON ===
 def load_controls():
-    with open("workflows/outreach_sender/opener_controls.json", "r") as f:
+    with open("workflows/outreach_sender/Utils/opener_controls.json", "r") as f:
         return json.load(f)
 
 # === Check if sending is allowed now ===

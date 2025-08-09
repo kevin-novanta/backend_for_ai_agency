@@ -1,0 +1,2 @@
+Run "Prompt_runner":
+python3 -m workflows.outreach_sender.Email_Scripts.prompt_runner

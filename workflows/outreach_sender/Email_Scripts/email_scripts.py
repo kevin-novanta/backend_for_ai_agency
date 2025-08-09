@@ -1,3 +1,8 @@
+import pandas as pd
+
+# Optional: Central reference for CRM leads path
+CRM_LEADS_PATH = "/Users/kevinnovanta/backend_for_ai_agency/data/leads/CRM_Leads/CRM_leads_copy.csv"
+
 # ============================================
 # 📧 Email Scripting Templates and GPT Prompts
 # ============================================
@@ -10,37 +15,28 @@ cold_email_prompt_template = """
 - Offer Summary: {offer_summary}
 
 ### Your Task:
-Write a short, warm cold outreach email (under 120 words) to the company above.
+Write a short, warm cold outreach email (under 110 words) inviting the company to a quick discovery call (free workflow audit) where we identify bottlenecks and propose a tailored automation plan.
 
 ### Script Rules:
-1. Do NOT summarize what the company does. Instead, use their offer to show deep understanding and context.
-2. Mention our company — Outbound Accelerator — as specialists in advanced AI workflows.
-3. Say: "We help companies like yours — companies that {offer_summary.lower()} — streamline complex operations and drive results."
-4. Mention tailored-specific results: reduce manual tasks, eliminate inefficiencies, and increase booked calls by 2–3x. (This will not be in the email, but is for your context.)
-5. Also include 1–2 of these 2025-relevant benefits of AI:
-   - Smarter, faster decisions
-   - Scaling without hiring
-   - Personalized experiences
-   - Automated compliance/risk tracking
-   - Refocusing team on high-value work
-6. Also highlight 1–2 common pain points solved:
-   - Human error from messy workflows
-   - Tool overload / siloed systems
-   - Workload overload (e.g., 1 person juggling 50+ clients)
-   - No automation or optimization support
-   - Old systems blocking full-funnel automation
-7. Be specific with industry context: instead of “businesses like yours,” say “other {industry_info.lower()} businesses.”
-8. Close by naming a likely pain (complexity, error, etc.) and why a tailored workflow would help.
-9. End the email inviting them to watch a short video breakdown showing how our system works and how it applies to them.
-10. Final sentence must include our company name: Outbound Accelerator.
-11. This email must be short, warm, and human-sounding. Avoid sounding generic or robotic. 
-
-### Example Output (for style/tone only):
-"At Outbound Accelerator, we help online learning companies reduce backend tasks and book more calls with AI-powered workflows tailored to their process."
+1. Do NOT re-explain what they do; show you understand their offer by referencing it naturally.
+2. Mention our company — Outbound Accelerator — as specialists in advanced AI workflows and ops automation.
+3. Use this context line once: "We help other {industry_info.lower()} businesses streamline messy processes, cut manual work, and increase booked calls without adding headcount."
+4. Touch 1–2 pains relevant to {offer_summary.lower()}:
+   - Human error from multi-tool chaos
+   - No time to follow up properly
+   - Leads slipping through the cracks
+   - Manual, repetitive tasks blocking growth
+5. Mention 1–2 practical outcomes:
+   - Clear workflow map in 7 days
+   - Automated follow-ups
+   - Cleaner CRM and reporting
+6. Clear CTA: invite them to a 15–20 min discovery call (free) to map quick wins; offer to send a 1‑page blueprint if they prefer async.
+7. Keep tone human, specific, concise. No hype, no emojis, no square brackets.
+8. Final sentence must include our company name: Outbound Accelerator.
 
 ### Output Format:
-- Keep it casual, friendly, human-sounding
-- No emojis, fake flattery, square brackets, or robotic tone
+- Casual, friendly, human
+- 1–2 short paragraphs + a one‑line CTA
 """
 
 # 🟡 Follow-Up Email Template Prompt
@@ -48,56 +44,71 @@ follow_up_prompt_template = """
 You already sent a cold email to this business but received no reply. Write a follow-up email that:
 
 - Feels casual and helpful (not pushy)
-- Reminds them briefly who we are and what we offer
-- Reframes the opportunity in a slightly different way
-- Ends with a soft CTA (e.g., "Let me know if you'd like me to send over a quick overview.")
+- Reminds them we offer a free 15–20 min discovery call (workflow audit)
+- Reframes value with one concrete outcome (e.g., automate follow-ups, de-duplicate leads, unify reporting)
+- Offers an async option: "I can send a 1‑page blueprint if you prefer."
+- Ends with a soft CTA: "Worth a quick look?"
 
 # Company Name:
 {company_name}
 
 # Industry / Category:
-{category}
+{industry_info}
 
-# Business Summary:
+# Business Summary / Pains:
 {offer_summary}
+
+# Notes:
+- Mention Outbound Accelerator once.
+- Keep under 90 words.
+- Human tone; no emojis or fluff.
 """
 
 # 📝 Reengagement Email Template Prompt
 reengagement_prompt_template = """
-Write a re-engagement email for a lead who previously showed interest but didn’t book a call. The email should:
+Write a re‑engagement email for a lead who previously showed interest but didn’t book. The email should:
 
-- Feel thoughtful and human
-- Reference that we had previously connected
-- Offer to revisit the opportunity or answer questions
-- Be short, warm, and low-pressure
+- Acknowledge prior convo briefly (no guilt)
+- Highlight one improvement since then (e.g., tighter lead routing, smarter follow-ups, clearer dashboard)
+- Offer a free 15–20 min discovery call or a 1‑page blueprint recap
+- Stay warm, low‑pressure, and specific to their context
 
 # Company Name:
 {company_name}
 
 # Industry / Category:
-{category}
+{industry_info}
 
-# Business Summary:
+# Business Summary / Pains:
 {offer_summary}
+
+# Requirements:
+- 70–100 words
+- End with a soft question ("want me to send the 1‑pager?")
+- Mention Outbound Accelerator once.
 """
 
-def get_opener_prompt(company_name, category, offer_summary):
+
+def load_leads_from_csv(csv_path):
+    return pd.read_csv(csv_path)
+
+def get_opener_prompt(row):
     return cold_email_prompt_template.format(
-        company_name=company_name,
-        category=category,
-        offer_summary=offer_summary
+        company_name=row['Lead Name'],
+        industry_info=row['Industry'] if 'Industry' in row else row['Offer Type'],
+        offer_summary=row['Main Pain Points']
     )
 
-def get_follow_up_prompt(company_name, category, offer_summary):
+def get_follow_up_prompt(row):
     return follow_up_prompt_template.format(
-        company_name=company_name,
-        category=category,
-        offer_summary=offer_summary
+        company_name=row['Lead Name'],
+        industry_info=row['Industry'] if 'Industry' in row else row['Offer Type'],
+        offer_summary=row['Main Pain Points']
     )
 
-def get_reengagement_prompt(company_name, category, offer_summary):
+def get_reengagement_prompt(row):
     return reengagement_prompt_template.format(
-        company_name=company_name,
-        category=category,
-        offer_summary=offer_summary
+        company_name=row['Lead Name'],
+        industry_info=row['Industry'] if 'Industry' in row else row['Offer Type'],
+        offer_summary=row['Main Pain Points']
     )

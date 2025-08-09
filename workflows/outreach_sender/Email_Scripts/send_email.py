@@ -8,7 +8,7 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 
 # Load email accounts and limits
-credentials_path = Path(__file__).parent.parent.parent / "creds" / "email_accounts.json"
+credentials_path = "/Users/kevinnovanta/backend_for_ai_agency/Creds/email_accounts.json"
 with open(credentials_path, "r") as f:
     email_accounts = json.load(f)
 

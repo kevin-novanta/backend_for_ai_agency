@@ -102,16 +102,14 @@ def sync_to_gsheet():
 
                 if email in email_to_row:
                     row_number = email_to_row[email]
-                    start_col = 2  # Column B
-                    end_col = start_col + len(update_columns) - 1
-                    start_cell = rowcol_to_a1(row_number, start_col)
-                    end_cell = rowcol_to_a1(row_number, end_col)
-                    cell_range = f"{WORKSHEET_NAME}!{start_cell}:{end_cell}"
-                    logging.debug(f"Calculated update range: {cell_range}")
+                    start_col = 12  # Column L
+                    end_col = 52    # Column AZ
+                    cell_range = f"{rowcol_to_a1(row_number, start_col)}:{rowcol_to_a1(row_number, end_col)}"
                     updates.append({
-                        "range": cell_range,
+                        "range": f"{WORKSHEET_NAME}!{cell_range}",
                         "values": [row_values]
                     })
+                    # The original updates.append block is replaced above.
                 else:
                     appends.append(row_values)
 
