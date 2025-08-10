@@ -4,7 +4,7 @@
   "outreach_enabled": true,
   "start_time": "08:00",
   "end_time": "13:00",
-  "days_allowed": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+  "days_allowed": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
   "daily_limit": 200,
   "per_inbox_limit": 40
 }
