@@ -1,3 +1,18 @@
+import re
+from workflows.followup_engine.utils.state_store import StateStore
+import hashlib
+from workflows.outreach_sender.AI_Intergrations.opener_ai_writer import generate_email
+from workflows.outreach_sender.Email_Scripts.send_email import send_email as gmail_send_email
+from workflows.outreach_sender.Utils.opener_utils import sanitize_email_fields
+
+import csv
+import json
+from datetime import datetime
+from pathlib import Path
+import time
+import random
+
+
 def remove_brackets(text):
     import re
     return re.sub(r'\[.*?\]', '', text)
@@ -8,20 +23,6 @@ def strip_html_tags(text):
     text = re.sub(r'(?i)<br\s*/?>', '\n', text)
     # Remove all other HTML tags
     return re.sub(r'<[^>]+>', '', text)
-from workflows.outreach_sender.AI_Intergrations.opener_ai_writer import generate_email
-from workflows.outreach_sender.Email_Scripts.send_email import send_email as gmail_send_email
-from workflows.outreach_sender.Utils.opener_utils import sanitize_email_fields
-
-import re
-
-
-
-import csv
-import json
-from datetime import datetime
-from pathlib import Path
-import time
-import random
 
 
 def _norm(s: str) -> str:
@@ -97,6 +98,9 @@ def run_opener_sequence():
             break
         print(f"⚠️ No leads found for client: '{client_name_display}'. Please try again.")
 
+    # Initialize shared state store for this client (used for global stop/idempotency)
+    st = StateStore(client=client_name_display)
+
     # Optional interactive testing mode
     interactive_mode = input("🧪 Interactive test mode? (y/N): ").strip().lower().startswith("y")
     sender_override = None
@@ -137,6 +141,12 @@ def run_opener_sequence():
     for i, lead in enumerate(leads_to_send):
         inbox_index = i % inbox_count
         email = lead.get("Email")
+        # Global stop gate: if this lead has replied or was stopped, skip all actions
+        lead_id = email or lead.get("id") or "unknown"
+        if st.should_stop_all(lead_id):
+            print(f"⏭️  Skipping {lead_id}: globally stopped (replied/paused/done).")
+            continue
+
         personalized = generate_email(lead)
         print("\n=== RAW AI OUTPUT ===")
         print("SUBJECT:", personalized["subject"])
@@ -216,6 +226,12 @@ def run_opener_sequence():
             lead["Opener Email"] = one_para_body
             lead["Opener Time Sent"] = datetime.now().strftime("%H:%M:%S")
             lead["Opener Date Sent"] = datetime.now().strftime("%Y-%m-%d")
+
+            # Per-step idempotency marker for opener step in sequence 'opener_outreach'
+            step_id = "opener"
+            sequence_id = "opener_outreach"
+            idem = hashlib.sha256(f"{lead_id}|{step_id}|{one_para_body}".encode()).hexdigest()
+            st.mark_sent(lead_id, sequence_id, step_id, idem)
 
             # Immediately update CRM CSV for this lead
             with open(crm_path, "r", newline="", encoding="utf-8") as csvfile:
