@@ -1,7 +1,0 @@
-restart registry: 
-
-/Users/kevinnovanta/backend_for_ai_agency/restart_registry_sync.sh
-
-Overwrite registry: 
-
-./overwrite_registry.sh
