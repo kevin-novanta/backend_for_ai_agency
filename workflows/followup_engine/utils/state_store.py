@@ -110,6 +110,28 @@ class StateStore:
                 status=excluded.status, stop_all=excluded.stop_all, updated_at=excluded.updated_at
             """, (lead_id, status, stop_all, now))
 
+    def get_global_status(self, lead_id: str) -> str:
+        """Return the global (__all__) status for a lead or 'ACTIVE' if none."""
+        with self._conn() as c:
+            row = c.execute(
+                "SELECT status FROM lead_state WHERE lead_id=? AND sequence_id='__all__' LIMIT 1",
+                (lead_id,)
+            ).fetchone()
+        return row[0] if row and row[0] else "ACTIVE"
+
+    @classmethod
+    def set_status(cls, lead_id: str, status: str, *, client: str = "default", db_path: Path | None = None) -> None:
+        """Convenience API used by other modules.
+        If status == 'REPLIED', mark fully replied (responded=1, stop_all=1).
+        Otherwise set the global status. This is a classmethod so callers don't
+        need to manage an instance just to flip a flag.
+        """
+        store = cls(client=client, db_path=db_path)
+        if status.upper() == "REPLIED":
+            store.mark_replied(lead_id)
+        else:
+            store.set_global_status(lead_id, status.upper())
+
     # ---------- webhook/poller event idempotency ----------
     def event_seen(self, provider: str, event_id: str) -> bool:
         """
