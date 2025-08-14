@@ -1,0 +1,26 @@
+Write a concise, curiosity-led subject line for a warm, first-touch email.
+
+Purpose:
+- Designed to be a base subject for outreach that will later be personalized.
+- Focus on workflow, operations, or efficiency improvements.
+- Must be short, specific, and easy to adapt.
+
+Constraints:
+- Max 6–8 words.
+- No salesy language, clickbait, emojis, or brackets.
+- Natural case (Title Case or sentence case), no ALL CAPS.
+- Avoid industry/company names here — keep it generic but relevant.
+
+Examples to inspire (do not copy verbatim):
+- Quick workflow idea
+- A simpler way to manage ops
+- Question on your process
+- Trim the busywork
+- A faster way to handoff
+- Improving how work moves
+
+Deliverability rules:
+- Avoid spam-trigger words: free, discount, guaranteed, guarantee, bonus, sale, special offer, no obligation, risk-free, click here, instant, act now, urgent, limited time, last chance, hurry, exclusive offer, priority, final hours, winner, prize, deal, cash, earn, easy money, get rich quick, credit, debt, refinance, investment, miracle, secret, scientifically proven, weight loss, congratulations, offer expires, apply now, order now, call now.
+- Do not use RE:, FWD:, ALL CAPS, excessive punctuation (!!!), emojis, or brackets [] {} <>.
+
+Return ONLY JSON: {"subject": "<text>"}.

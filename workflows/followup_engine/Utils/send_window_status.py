@@ -4,8 +4,9 @@ from pathlib import Path
 import json
 from typing import Optional, Tuple
 from zoneinfo import ZoneInfo
+import re, os
 
-CONTROLS_PATH = Path(__file__).parent / "followup_controls.json"
+CONTROLS_PATH = Path("/Users/kevinnovanta/backend_for_ai_agency/workflows/followup_engine/utils/followup_controls.json")
 COUNTERS_PATH = Path(__file__).parent / "send_counters.json"
 
 DAYS_MAP = {
@@ -31,8 +32,14 @@ def _load_controls() -> dict:
     return data
 
 def _parse_hhmm(s: str) -> time:
-    hh, mm = (s or "09:00").split(":", 1)
-    return time(int(hh), int(mm))
+    val = (s or "").strip()
+    if not re.match(r"^\d{1,2}:\d{2}$", val):
+        raise ValueError("expected HH:MM 24-hour")
+    hh_s, mm_s = val.split(":", 1)
+    hh, mm = int(hh_s), int(mm_s)
+    if not (0 <= hh <= 23 and 0 <= mm <= 59):
+        raise ValueError("hour/minute out of range")
+    return time(hh, mm)
 
 def _now_local(tz_name: str) -> datetime:
     tz = ZoneInfo(tz_name)
@@ -57,10 +64,14 @@ def _save_counters(data: dict) -> None:
     with open(COUNTERS_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-def check_send_window(*, inbox: Optional[str] = None, dry_run: bool = True) -> Tuple[bool, str]:
+def check_send_window(*, inbox: Optional[str] = None, dry_run: bool = True, bypass_time: bool = False) -> Tuple[bool, str]:
     """Return (allowed, reason). If allowed and not dry_run, increments counters.
     Reasons: 'disabled', 'day', 'time', 'daily_limit', 'per_inbox_limit', 'ok'.
     """
+    # Allow bypass via arg or env var (SEQ_BYPASS_TIME=1)
+    if not bypass_time:
+        bypass_time = os.environ.get("SEQ_BYPASS_TIME") == "1"
+
     cfg = _load_controls()
     if not cfg.get("outreach_enabled", True):
         return False, "disabled"
@@ -75,11 +86,15 @@ def check_send_window(*, inbox: Optional[str] = None, dry_run: bool = True) -> T
     if weekday not in allowed_idx:
         return False, "day"
 
-    start_t = _parse_hhmm(cfg.get("start_time", "09:00"))
-    end_t = _parse_hhmm(cfg.get("end_time", "17:00"))
-    cur_t = now.timetz().replace(tzinfo=None)
-    if not (start_t <= cur_t <= end_t):
-        return False, "time"
+    if not bypass_time:
+        try:
+            start_t = _parse_hhmm(cfg.get("start_time", "09:00"))
+            end_t = _parse_hhmm(cfg.get("end_time", "17:00"))
+        except Exception:
+            return False, "time"
+        cur_t = now.timetz().replace(tzinfo=None)
+        if not (start_t <= cur_t <= end_t):
+            return False, "time"
 
     counters = _load_counters(today)
     daily_limit = int(cfg.get("daily_limit", 999999))
