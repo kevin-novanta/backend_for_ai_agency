@@ -82,7 +82,34 @@ def find_lead_row(from_email: str, inbox: str) -> Optional[Dict[str, str]]:
             if "Email" not in slim:
                 slim["Email"] = r.get(email_key, "")
             print(f"[resolve_lead] Match found for {norm_from} using column '{email_key}'")
+            print(f"[resolve_lead] Match: {norm_from} -> {slim or r}")
             return slim or r
 
     print(f"[resolve_lead] No match for {norm_from}")
+    print(f"[resolve_lead] No match for {norm_from}")
     return None
+
+
+# (append below existing code)
+
+def _load_rows_and_header() -> tuple[list[dict[str, str]], list[str]]:
+    return _safe_open_csv(_CSV_PATH)
+
+
+def load_crm_index() -> dict:
+    """Load the CRM once and build fast lookup structures.
+    Returns: {"by_email": Dict[email_lower -> row], "headers": List[str]}
+    """
+    rows, header = _load_rows_and_header()
+    by_email: dict[str, dict[str, str]] = {}
+    email_key = _find_email_key(header) if header else None
+    if not email_key:
+        print(f"[resolve_lead] Loaded {len(rows)} CRM rows")
+        return {"by_email": by_email, "headers": header}
+
+    for r in rows:
+        e = _normalize_email(r.get(email_key))
+        if e:
+            by_email[e] = r
+    print(f"[resolve_lead] Loaded {len(rows)} CRM rows")
+    return {"by_email": by_email, "headers": header}

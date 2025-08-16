@@ -27,6 +27,11 @@ def mark_yes(lead_email: str, subject: str, date_iso: str) -> bool:
     """
     print(f"mark_yes called with lead_email={lead_email}, subject={subject}, date_iso={date_iso}")
 
+    from datetime import datetime, timezone
+    if not date_iso:
+        date_iso = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        print(f"No date_iso provided; using current UTC {date_iso}")
+
     if not os.path.exists(CRM_CSV_PATH):
         print(f"CRM CSV file not found at {CRM_CSV_PATH}")
         return False
@@ -60,7 +65,7 @@ def mark_yes(lead_email: str, subject: str, date_iso: str) -> bool:
             print(f"Email column identified as: {email_key}")
 
             # Ensure required columns exist in header
-            for needed in ["Responded?", "Last Inbound Timestamp", "Stop Reason"]:
+            for needed in ["Responded?", "Last Inbound Timestamp", "Replied Timestamp", "Stop Reason"]:
                 if needed not in fieldnames:
                     print(f"Adding missing column to headers: {needed}")
                     fieldnames.append(needed)
@@ -71,6 +76,7 @@ def mark_yes(lead_email: str, subject: str, date_iso: str) -> bool:
                     print(f"Found matching lead row for {target}, updating fields...")
                     row["Responded?"] = "Yes"
                     row["Last Inbound Timestamp"] = date_iso
+                    row["Replied Timestamp"] = date_iso
                     row["Stop Reason"] = "REPLIED"
                     updated = True
                 rows.append(row)
@@ -145,7 +151,7 @@ def mark_no(lead_email: str, date_iso: str | None = None) -> bool:
             print(f"Email column identified as (mark_no): {email_key}")
 
             # Ensure required columns exist in header (at least Responded?)
-            for needed in ["Responded?", "Last Inbound Timestamp", "Stop Reason"]:
+            for needed in ["Responded?", "Last Inbound Timestamp", "Replied Timestamp", "Stop Reason"]:
                 if needed not in fieldnames:
                     print(f"Adding missing column to headers (mark_no): {needed}")
                     fieldnames.append(needed)
