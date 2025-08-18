@@ -1,0 +1,83 @@
+
+
+
+# Daemon Commands List
+
+Below are the available daemon commands and their descriptions:
+
+- **start**:  
+  Starts the daemon process if it is not already running.
+  ./daemon.sh start
+
+- **stop**:  
+  Stops the daemon process if it is currently running.
+  ./daemon.sh stop
+
+- **status**:  
+  Displays the current status of the daemon process (e.g., running or stopped).
+  ./daemon.sh status
+
+- **restart**:  
+  Stops the daemon process if running, then starts it again.
+  ./daemon.sh restart
+
+
+# Usage Directions
+
+1. Navigate to the utils folder:
+   cd /Users/kevinnovanta/backend_for_ai_agency/workflows/followup_engine/gmail_watch/utils
+
+2. Make sure the script is executable (run once):
+   chmod +x daemon.sh
+
+3. Available commands:
+   - Start the daemon:
+     ./daemon.sh start
+   - Stop the daemon:
+     ./daemon.sh stop
+   - Check daemon status:
+     ./daemon.sh status
+   - Restart the daemon:
+     ./daemon.sh restart
+
+4. View logs to see output in real time:
+   tail -f /tmp/gmail_watch.log
+   4a. Note: The log file is capped at 10,000 lines. When this limit is exceeded, the oldest 5,000 lines are automatically deleted.
+
+5. Find the PID of the daemon manually (if needed):
+   cat /tmp/gmail_watch.pid
+
+6. Kill the daemon manually (if needed):
+   kill -9 $(cat /tmp/gmail_watch.pid)
+
+
+
+
+
+
+   1. Make sure it’s executable
+
+Run this once:
+chmod +x /Users/kevinnovanta/backend_for_ai_agency/workflows/followup_engine/gmail_watch/utils/daemon.sh
+
+2. Start the daemon
+
+From inside the utils folder:
+cd /Users/kevinnovanta/backend_for_ai_agency/workflows/followup_engine/gmail_watch/utils
+./daemon.sh start
+
+3. Check status
+./daemon.sh status
+
+4. Stop the daemon
+./daemon.sh stop
+
+5. Restart the daemon
+./daemon.sh restart
+
+6. Tail the logs in real time
+
+The new script automatically tails logs when started.
+If you want to manually tail later:
+tail -f /Users/kevinnovanta/backend_for_ai_agency/workflows/followup_engine/gmail_watch/utils/gmail_watcher.log
+

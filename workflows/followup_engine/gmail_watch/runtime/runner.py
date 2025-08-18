@@ -4,6 +4,14 @@ import random
 import traceback
 from typing import Sequence, Dict
 
+import sys
+import os
+
+# Redirect stdout and stderr to log file
+LOG_PATH = os.path.expanduser("/Users/kevinnovanta/backend_for_ai_agency/workflows/followup_engine/gmail_watch/utils/gmail_watcher.log")
+sys.stdout = open(LOG_PATH, "a")
+sys.stderr = open(LOG_PATH, "a")
+
 from ..Steps.poll_inbox import poll_ids
 from ..Steps.classify_message import classify
 from ..Steps.resolve_lead import find_lead_row, load_crm_index
@@ -11,6 +19,28 @@ from ..Steps.mark_responded import mark_yes
 from ..Adapters.gmail_client import gmail_service_for_user
 from ..State.offsets import get_offset, set_offset
 from ..State.paths import logger
+
+# --- Config toggles and helpers ---
+# --- Config toggles and helpers ---
+# --- Config toggles and helpers ---
+import json
+
+STRICT_OWNER = os.getenv("GMAIL_WATCH_STRICT_OWNER", "1") not in ("0","false","False")
+ENFORCE_THREAD_MATCH = os.getenv("GMAIL_WATCH_ENFORCE_THREAD", "0") in ("1","true","True")
+AUDIT_LOG_PATH = os.getenv("GMAIL_WATCH_AUDIT_LOG", "/Users/kevinnovanta/backend_for_ai_agency/workflows/followup_engine/gmail_watch/Data/reply_events.log.jsonl")
+POLL_MINUTES = int(os.getenv("GMAIL_WATCH_POLL_MINUTES", "5"))
+
+def _audit_event(payload: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(AUDIT_LOG_PATH), exist_ok=True)
+        with open(AUDIT_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        # best-effort; don't crash runner
+        logger.warning("[runner] audit write failed", exc_info=True)
+
+# Bulk/no-reply sender helper
+from ..Logic.filters import is_bulk_sender_domain
 
 
 def _now_ms() -> int:
@@ -115,6 +145,13 @@ def run_once_for_inbox(inbox: str, lookback_minutes: int = 1440) -> Dict[str, in
             print(f"[runner] Skipping reason: self-sent message for msg_id={mid}")
             continue
 
+        # Drop obvious bulk/no-reply domains early (defense-in-depth)
+        if is_bulk_sender_domain(from_email):
+            logger.info("[runner] skip: bulk/no-reply sender %s (id=%s)", from_email, mid)
+            counts["skipped"] += 1
+            print(f"[runner] Skipping reason: bulk/no-reply sender {from_email} for msg_id={mid}")
+            continue
+
         # CSV-only filter: sender must exist in CRM index
         row = lead_by_email.get(from_email)
         if not row:
@@ -126,31 +163,60 @@ def run_once_for_inbox(inbox: str, lookback_minutes: int = 1440) -> Dict[str, in
         # Owner/inbox match if owner is present
         owner = (row.get("Owner / Assigned To") or "").strip().lower()
         if owner and owner != inbox.strip().lower():
-            logger.info("[runner] skip: owner mismatch from=%s owner=%s inbox=%s", from_email, owner, inbox)
-            counts["skipped"] += 1
-            print(f"[runner] Skipping reason: owner mismatch owner={owner} inbox={inbox} for msg_id={mid}")
-            continue
+            if STRICT_OWNER:
+                logger.info("[runner] skip: owner mismatch from=%s owner=%s inbox=%s", from_email, owner, inbox)
+                counts["skipped"] += 1
+                print(f"[runner] Skipping reason: owner mismatch owner={owner} inbox={inbox} for msg_id={mid}")
+                continue
+            else:
+                logger.warning("[runner] owner mismatch (soft) from=%s owner=%s inbox=%s", from_email, owner, inbox)
 
         # Optional thread match if both provided
         stored_tid = (row.get("Email Thread Link") or "").strip()
         tid = (msg.get("thread_id") or "").strip()
         if stored_tid and tid and stored_tid != tid:
-            logger.info("[runner] skip: thread mismatch from=%s tid=%s stored=%s", from_email, tid, stored_tid)
-            counts["skipped"] += 1
-            print(f"[runner] Skipping reason: thread mismatch tid={tid} stored={stored_tid} for msg_id={mid}")
-            continue
+            if ENFORCE_THREAD_MATCH:
+                logger.info("[runner] skip: thread mismatch from=%s tid=%s stored=%s", from_email, tid, stored_tid)
+                counts["skipped"] += 1
+                print(f"[runner] Skipping reason: thread mismatch tid={tid} stored={stored_tid} for msg_id={mid}")
+                continue
+            else:
+                logger.warning("[runner] thread mismatch (soft) from=%s tid=%s stored=%s", from_email, tid, stored_tid)
 
         # At this point, it's a reply from a known lead (and for this inbox if owner set)
         counts["matched"] += 1
 
         try:
             print(f"[runner] Marking lead {row['Email']} YES")
-            ok = mark_yes(row.get("Email", from_email), msg.get("subject", ""), msg.get("date_iso", ""))
+            ok = mark_yes(
+                row.get("Email", from_email),
+                msg.get("subject", ""),
+                msg.get("date_iso", ""),
+                msg.get("thread_id", "")
+            )
             if ok:
                 counts["updated"] += 1
                 logger.info("[runner] mark_yes OK for %s", from_email)
+                _audit_event({
+                    "inbox": inbox,
+                    "lead_email": row.get("Email", from_email),
+                    "from_email": from_email,
+                    "subject": msg.get("subject",""),
+                    "date_iso": msg.get("date_iso",""),
+                    "thread_id": msg.get("thread_id",""),
+                    "reason": "UPDATED"
+                })
             else:
                 logger.info("[runner] mark_yes returned False for %s", from_email)
+                _audit_event({
+                    "inbox": inbox,
+                    "lead_email": row.get("Email", from_email),
+                    "from_email": from_email,
+                    "subject": msg.get("subject",""),
+                    "date_iso": msg.get("date_iso",""),
+                    "thread_id": msg.get("thread_id",""),
+                    "reason": "NOUPDATE"
+                })
         except Exception:
             counts["errors"] += 1
             logger.error("[runner] mark_yes failed for %s: %s", from_email, traceback.format_exc())
@@ -162,9 +228,10 @@ def run_once_for_inbox(inbox: str, lookback_minutes: int = 1440) -> Dict[str, in
     # Persist watermark
     try:
         if newest_ms and newest_ms > 0:
-            set_offset(inbox, newest_ms)
-            logger.info("[runner] set_offset(%s, %s)", inbox, newest_ms)
-            print(f"[runner] Updated offset for {inbox} to {newest_ms}")
+            bumped = int(newest_ms) + 1  # avoid equality tie on next tick
+            set_offset(inbox, bumped)
+            logger.info("[runner] set_offset(%s, %s)", inbox, bumped)
+            print(f"[runner] Updated offset for {inbox} to {bumped}")
     except Exception:
         counts["errors"] += 1
         logger.error("[runner] set_offset failed for %s: %s", inbox, traceback.format_exc())
@@ -173,7 +240,12 @@ def run_once_for_inbox(inbox: str, lookback_minutes: int = 1440) -> Dict[str, in
     return counts
 
 
-def run_loop(inboxes: Sequence[str], interval_sec: int = 60, jitter_sec: int = 15, lookback_minutes: int = 1440):
+def run_loop(inboxes: Sequence[str], interval_sec: int | None = None, jitter_sec: int = 15, lookback_minutes: int | None = None):
+    if interval_sec is None:
+        interval_sec = max(1, POLL_MINUTES) * 60
+    if lookback_minutes is None:
+        lookback_minutes = max(1, POLL_MINUTES)
+    logger.info("[runner] Using poll interval=%sm, lookback window=%sm", interval_sec // 60, lookback_minutes)
     logger.info("Starting gmail_watch for %d inbox(es): %s", len(inboxes), ", ".join(inboxes))
     while True:
         for inbox in inboxes:
@@ -187,3 +259,135 @@ def run_loop(inboxes: Sequence[str], interval_sec: int = 60, jitter_sec: int = 1
                 logger.error("[loop] Fatal error in inbox loop for %s: %s", inbox, traceback.format_exc())
         sleep_for = interval_sec + random.randint(0, max(0, jitter_sec))
         time.sleep(sleep_for)
+
+if __name__ == "__main__":
+    # Lightweight CLI so you can run this module directly:
+    #   python3 -m workflows.followup_engine.gmail_watch.runtime.runner --mode tick
+    #   python3 -m workflows.followup_engine.gmail_watch.runtime.runner --mode loop --interval 60 --jitter 15
+    import argparse
+    import logging
+
+    from ..Adapters.creds_loader import load_senders  # lazy import to avoid circulars
+
+    parser = argparse.ArgumentParser(description="gmail_watch runner")
+    parser.add_argument(
+        "--mode",
+        choices=["tick", "loop"],
+        default="tick",
+        help="tick = run one pass; loop = run forever with sleep",
+    )
+    parser.add_argument(
+        "--inbox",
+        action="append",
+        default=None,
+        help="Email address to process. Can be specified multiple times. Defaults to all from Creds/email_accounts.json",
+    )
+    parser.add_argument(
+        "--lookback-minutes",
+        type=int,
+        default=None,
+        help="Lookback window (minutes) used when no stored offset exists. Defaults to --poll-minutes when unset.",
+    )
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=None,
+        help="Loop sleep interval seconds (only for --mode loop). Defaults to --poll-minutes * 60.",
+    )
+    parser.add_argument(
+        "--poll-minutes",
+        type=int,
+        default=int(os.getenv("GMAIL_WATCH_POLL_MINUTES", "5")),
+        help="Polling cadence in minutes. Also used as default lookback window when no offset exists.",
+    )
+    parser.add_argument(
+        "--jitter",
+        type=int,
+        default=15,
+        help="Random jitter seconds added to sleep (only for --mode loop).",
+    )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Logging verbosity.",
+    )
+    parser.add_argument(
+        "--strict-owner",
+        dest="strict_owner",
+        action="store_true",
+        help="Require Owner / Assigned To to equal inbox (default if env GMAIL_WATCH_STRICT_OWNER not set to 0/false).",
+    )
+    parser.add_argument(
+        "--no-strict-owner",
+        dest="strict_owner",
+        action="store_false",
+        help="Do not strictly enforce owner/inbox match (soft warning).",
+    )
+    parser.set_defaults(strict_owner=(os.getenv("GMAIL_WATCH_STRICT_OWNER", "1").lower() not in ("0", "false")))
+    parser.add_argument(
+        "--enforce-thread",
+        dest="enforce_thread",
+        action="store_true",
+        help="Require Gmail thread_id to match CSV 'Email Thread Link' exactly when present.",
+    )
+    parser.add_argument(
+        "--no-enforce-thread",
+        dest="enforce_thread",
+        action="store_false",
+        help="Do not strictly enforce thread match (soft warning).",
+    )
+    parser.set_defaults(enforce_thread=(os.getenv("GMAIL_WATCH_ENFORCE_THREAD", "0").lower() in ("1", "true")))
+
+    args = parser.parse_args()
+
+    # Configure logging
+    logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO),
+                        format="%(asctime)s %(levelname)s %(message)s")
+
+    # Derive interval/lookback defaults from poll-minutes if not explicitly provided
+    if args.interval is None:
+        args.interval = max(1, args.poll_minutes) * 60
+    if args.lookback_minutes is None:
+        args.lookback_minutes = max(1, args.poll_minutes)
+
+    # Keep env in sync for any downstream reads
+    os.environ["GMAIL_WATCH_POLL_MINUTES"] = str(args.poll_minutes)
+
+    # Push CLI overrides into environment so the module-level toggles pick them up
+    os.environ["GMAIL_WATCH_STRICT_OWNER"] = "1" if args.strict_owner else "0"
+    os.environ["GMAIL_WATCH_ENFORCE_THREAD"] = "1" if args.enforce_thread else "0"
+
+    # Re-evaluate toggles for this process (no global needed at module scope)
+    STRICT_OWNER = os.getenv("GMAIL_WATCH_STRICT_OWNER", "1") not in ("0", "false", "False")
+    ENFORCE_THREAD_MATCH = os.getenv("GMAIL_WATCH_ENFORCE_THREAD", "0") in ("1", "true", "True")
+
+    # Resolve inbox list
+    inboxes = args.inbox if args.inbox else load_senders()
+    if not inboxes:
+        raise SystemExit("No inboxes configured. Check Creds/email_accounts.json or pass --inbox.")
+
+    print(f"[runner __main__] Mode={args.mode} Inboxes={inboxes} "
+          f"Poll={args.poll_minutes}m Lookback={args.lookback_minutes}m StrictOwner={STRICT_OWNER} EnforceThread={ENFORCE_THREAD_MATCH}")
+
+    # Ensure log does not grow unbounded
+    # Prefer package-relative import; fall back to absolute; finally no-op to keep runtime going.
+    try:
+        from ..utils.trim_log import trim_log  # type: ignore[reportMissingImports]
+    except Exception:
+        try:
+            from workflows.followup_engine.gmail_watch.utils.trim_log import trim_log  # type: ignore[reportMissingImports]
+        except Exception:
+            def trim_log(*_args, **_kwargs):  # fallback no-op
+                print("[runner] WARNING: trim_log unavailable (import failed)")
+
+    if args.mode == "tick":
+        results = {}
+        for ib in inboxes:
+            print(f"\n=== ONE-TICK for {ib} ===")
+            results[ib] = run_once_for_inbox(ib, lookback_minutes=args.lookback_minutes)
+            print(f"[runner __main__] {ib} -> {results[ib]}")
+            trim_log()
+    else:
+        # loop mode
+        run_loop(inboxes, interval_sec=args.interval, jitter_sec=args.jitter, lookback_minutes=args.lookback_minutes)

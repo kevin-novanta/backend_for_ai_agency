@@ -2,6 +2,8 @@ from __future__ import annotations
 from typing import Dict, Optional
 import email.utils
 import datetime
+import time
+from googleapiclient.errors import HttpError
 
 from ..Logic.filters import is_auto_reply
 from ..Logic.mapping import extract_email
@@ -30,12 +32,23 @@ def _parse_date_iso(date_hdr: str | None) -> str:
 def classify(svc, msg_id: str, inbox: str) -> Optional[dict]:
     """Fetch and classify a message via Gmail API. Return a normalized dict or None to skip."""
     user_id = "me"
-    msg = (
+    req = (
         svc.users()
         .messages()
         .get(userId=user_id, id=msg_id, format="metadata", metadataHeaders=META_HEADERS)
-        .execute()
     )
+    retries = 0
+    while True:
+        try:
+            msg = req.execute()
+            break
+        except (HttpError, ConnectionResetError, TimeoutError) as e:
+            if retries >= 3:
+                raise
+            sleep_s = [0.5, 1.0, 2.0][retries]
+            print(f"[classify_message] transient error, retrying in {sleep_s}s for {msg_id}: {e}")
+            time.sleep(sleep_s)
+            retries += 1
 
     headers = msg.get("payload", {}).get("headers", [])
     print(f"[classify_message] Processing {msg_id}, headers={headers}")

@@ -14,3 +14,21 @@ def is_auto_reply(subject: str | None, headers: Dict[str, str]) -> bool:
     if "List-Id" in headers or headers.get("Precedence", "").lower() in ("bulk", "list", "junk"):
         return True
     return False
+
+# --- Bulk/no-reply sender helper ---
+_NOREPLY_RE = re.compile(r"(no[-_]?reply|notification|noreply)@", re.I)
+_BULK_DOMAINS = (
+    "linkedin.com", "facebookmail.com", "twitter.com", "mailchimp.com",
+    "sendgrid.net", "amazonses.com", "hubspotemail.net", "marketo.net"
+)
+
+def is_bulk_sender_domain(addr: str | None) -> bool:
+    if not addr:
+        return False
+    a = addr.lower()
+    if _NOREPLY_RE.search(a):
+        return True
+    for dom in _BULK_DOMAINS:
+        if a.endswith("@" + dom) or a.endswith("." + dom) or a.endswith(dom):
+            return True
+    return False

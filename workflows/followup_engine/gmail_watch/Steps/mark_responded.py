@@ -1,6 +1,7 @@
 from __future__ import annotations
 import csv
 import os
+import tempfile
 
 print("Starting mark_responded script...")
 
@@ -21,11 +22,11 @@ except Exception:  # pragma: no cover
 CRM_CSV_PATH = \
     "/Users/kevinnovanta/backend_for_ai_agency/data/leads/CRM_Leads/CRM_leads_copy.csv"
 
-def mark_yes(lead_email: str, subject: str, date_iso: str) -> bool:
-    """Update CSV (Responded?=Yes, Last Inbound Timestamp, Stop Reason) and set StateStore to REPLIED.
+def mark_yes(lead_email: str, subject: str, date_iso: str, thread_id: str | None = None) -> bool:
+    """Update CSV (Responded?=Yes, Last Inbound Timestamp, Stop Reason, Email Thread Link) and set StateStore to REPLIED.
     Returns True if the row was found and updated; False otherwise.
     """
-    print(f"mark_yes called with lead_email={lead_email}, subject={subject}, date_iso={date_iso}")
+    print(f"mark_yes called with lead_email={lead_email}, subject={subject}, date_iso={date_iso}, thread_id={thread_id}")
 
     from datetime import datetime, timezone
     if not date_iso:
@@ -65,7 +66,7 @@ def mark_yes(lead_email: str, subject: str, date_iso: str) -> bool:
             print(f"Email column identified as: {email_key}")
 
             # Ensure required columns exist in header
-            for needed in ["Responded?", "Last Inbound Timestamp", "Replied Timestamp", "Stop Reason"]:
+            for needed in ["Responded?", "Last Inbound Timestamp", "Replied Timestamp", "Stop Reason", "Email Thread Link"]:
                 if needed not in fieldnames:
                     print(f"Adding missing column to headers: {needed}")
                     fieldnames.append(needed)
@@ -78,6 +79,9 @@ def mark_yes(lead_email: str, subject: str, date_iso: str) -> bool:
                     row["Last Inbound Timestamp"] = date_iso
                     row["Replied Timestamp"] = date_iso
                     row["Stop Reason"] = "REPLIED"
+                    if thread_id:
+                        if row.get("Email Thread Link") != thread_id:
+                            row["Email Thread Link"] = thread_id
                     updated = True
                 rows.append(row)
     except Exception as e:
@@ -89,11 +93,22 @@ def mark_yes(lead_email: str, subject: str, date_iso: str) -> bool:
         return False
 
     try:
-        print("Saving updated lead state to CSV file...")
-        with open(CRM_CSV_PATH, mode='w', newline='', encoding='utf-8') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(rows)
+        print("Saving updated lead state to CSV file (atomic write)...")
+        dir_name = os.path.dirname(CRM_CSV_PATH)
+        os.makedirs(dir_name, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(prefix="crm_", suffix=".csv", dir=dir_name)
+        try:
+            with os.fdopen(fd, mode="w", newline="", encoding="utf-8") as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
+            os.replace(tmp_path, CRM_CSV_PATH)
+        finally:
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
     except Exception as e:
         print(f"Error writing CSV file: {e}")
         return False
@@ -178,11 +193,22 @@ def mark_no(lead_email: str, date_iso: str | None = None) -> bool:
         return False
 
     try:
-        print("Saving updated lead state to CSV file (mark_no)...")
-        with open(CRM_CSV_PATH, mode='w', newline='', encoding='utf-8') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(rows)
+        print("Saving updated lead state to CSV file (mark_no, atomic write)...")
+        dir_name = os.path.dirname(CRM_CSV_PATH)
+        os.makedirs(dir_name, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(prefix="crm_", suffix=".csv", dir=dir_name)
+        try:
+            with os.fdopen(fd, mode="w", newline="", encoding="utf-8") as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
+            os.replace(tmp_path, CRM_CSV_PATH)
+        finally:
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
     except Exception as e:
         print(f"Error writing CSV file (mark_no): {e}")
         return False

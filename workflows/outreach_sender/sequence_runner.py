@@ -421,13 +421,20 @@ def run_opener_sequence():
         lead["Opener Time Sent"] = _now.strftime("%H:%M:%S")
         lead["Opener Date Sent"] = _now.strftime("%Y-%m-%d")
 
+        # Store Gmail thread link in single column for follow-ups
+        thread_url = lead.get("Gmail Thread URL") or lead.get("Gmail Thread Link") or lead.get("Gmail Thread ID") or None
+        lead["Email Thread Thread"] = thread_url or ""
+        if thread_url:
+            print(f"🔗 Gmail thread URL saved: {thread_url}")
+
         # Persist the opener fields to CSV immediately
         try:
             with open(crm_path, "r", newline="", encoding="utf-8") as f:
                 csv_rows = list(csv.DictReader(f))
             required_cols = [
                 "Opener Sender Used", "Opener Subject Sent", "Opener Body Sent",
-                "Opener Time Sent", "Opener Date Sent", "Bounce Status for Opener"
+                "Opener Time Sent", "Opener Date Sent", "Bounce Status for Opener",
+                "Email Thread Thread"
             ]
             existing_cols = list(csv_rows[0].keys()) if csv_rows else []
             fieldnames_local = list(dict.fromkeys(existing_cols + required_cols))
@@ -450,6 +457,7 @@ def run_opener_sequence():
                         row["Opener Body Sent"] = lead.get("Opener Body Sent", row.get("Opener Body Sent", ""))
                         row["Opener Time Sent"] = lead.get("Opener Time Sent", row.get("Opener Time Sent", ""))
                         row["Opener Date Sent"] = lead.get("Opener Date Sent", row.get("Opener Date Sent", ""))
+                        row["Email Thread Thread"] = lead.get("Email Thread Thread", row.get("Email Thread Thread", ""))
                     for col in fieldnames_local:
                         if col not in row:
                             row[col] = ""
@@ -542,7 +550,8 @@ def run_opener_sequence():
     # Reopen CRM for rewriting
     required_cols = [
         "Opener Sender Used", "Opener Subject Sent", "Opener Body Sent",
-        "Opener Time Sent", "Opener Date Sent", "Bounce Status for Opener"
+        "Opener Time Sent", "Opener Date Sent", "Bounce Status for Opener",
+        "Email Thread Thread"
     ]
     existing_cols = list(csvfile_data[0].keys()) if csvfile_data else []
     fieldnames = list(dict.fromkeys(existing_cols + required_cols))
@@ -571,6 +580,7 @@ def run_opener_sequence():
                     row["Opener Body Sent"] = matching.get("Opener Body Sent", row.get("Opener Body Sent", ""))
                     row["Opener Time Sent"] = matching.get("Opener Time Sent", row.get("Opener Time Sent", ""))
                     row["Opener Date Sent"] = matching.get("Opener Date Sent", row.get("Opener Date Sent", ""))
+                    row["Email Thread Thread"] = matching.get("Email Thread Thread", row.get("Email Thread Thread", ""))
             # Ensure all required columns exist for DictWriter
             for col in fieldnames:
                 if col not in row:

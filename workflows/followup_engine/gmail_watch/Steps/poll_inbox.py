@@ -1,5 +1,7 @@
 from __future__ import annotations
 from typing import List, Any
+import time
+from googleapiclient.errors import HttpError
 
 
 def _build_query(inbox: str, lookback_minutes: int) -> str:
@@ -34,7 +36,18 @@ def poll_ids(gc: Any, inbox: str, since_epoch_ms: int, lookback_minutes: int = 1
                 includeSpamTrash=False,
             )
         )
-        res = req.execute()
+        retries = 0
+        while True:
+            try:
+                res = req.execute()
+                break
+            except (HttpError, ConnectionResetError, TimeoutError) as e:
+                if retries >= 3:
+                    raise
+                sleep_s = [0.5, 1.0, 2.0][retries]
+                print(f"[poll_inbox] transient error, retrying in {sleep_s}s: {e}")
+                time.sleep(sleep_s)
+                retries += 1
         msgs = res.get("messages", [])
         print(f"[poll_inbox] Found {len(msgs)} messages")
         for m in msgs:
