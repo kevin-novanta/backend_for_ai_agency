@@ -18,7 +18,7 @@ Use the offer summary as inspiration for tailoring the opening value statement, 
 
 Keep the explanation simple but confident, showing value without being hypey.
 
-End with a friendly call to action: invite them to book a call for a free audit and game plan for building an AI workflow system that could help replace or optimize a specific part of their company.
+(ALWAYS INCLUDE THIS) End with a friendly call to action: invite them to book a call for a free audit and game plan for building an AI workflow system that could help replace or optimize a specific part of their company.
 
 Mention that they’ll be asked to fill out a short form before the call to help tailor the solution.
 

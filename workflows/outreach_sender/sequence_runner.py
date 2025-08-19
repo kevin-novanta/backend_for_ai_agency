@@ -28,7 +28,7 @@ from pathlib import Path as _PathForLog
 import atexit as _atexit_for_log
 import datetime as _dt_for_log
 
-_LOG_DIR = _PathForLog(__file__).replace("sequence_runner.py", "logs") if hasattr(_PathForLog(__file__), 'replace') else _PathForLog(__file__).parent / "logs"
+_LOG_DIR = _PathForLog(__file__).parent / "logs"
 try:
     # Fallback to normal path logic
     _LOG_DIR = _PathForLog(__file__).parent / "logs"
@@ -155,8 +155,39 @@ def _persist_owner_assignment(crm_path: Path, lead_email: str, owner_email: str)
 
 # Use actual Gmail send logic
 def send_email(recipient_email, subject, body, sender_override=None):
-    success, sender_email = gmail_send_email(recipient_email, subject, body, sender_override=sender_override)
-    return success, sender_email
+    """
+    Normalizes return from gmail_send_email to always be:
+      (success: bool, sender_email: str|None, thread_id: str|None, thread_url: str|None)
+
+    Supported upstream return shapes:
+      - tuple: (success, sender_email)
+      - tuple: (success, sender_email, thread_id)
+      - tuple: (success, sender_email, thread_id, thread_url)
+      - dict:  {"success": bool, "sender"|"sender_email": str, "thread_id"|"threadId": str, "thread_url"|"threadUrl": str}
+    """
+    result = gmail_send_email(recipient_email, subject, body, sender_override=sender_override)
+
+    success = False
+    sender_email = sender_override
+    thread_id = None
+    thread_url = None
+
+    if isinstance(result, tuple):
+        if len(result) >= 1:
+            success = bool(result[0])
+        if len(result) >= 2:
+            sender_email = result[1]
+        if len(result) >= 3:
+            thread_id = result[2]
+        if len(result) >= 4:
+            thread_url = result[3]
+    elif isinstance(result, dict):
+        success = bool(result.get("success", False))
+        sender_email = result.get("sender") or result.get("sender_email") or sender_override
+        thread_id = result.get("thread_id") or result.get("threadId")
+        thread_url = result.get("thread_url") or result.get("threadUrl")
+
+    return success, sender_email, thread_id, thread_url
 
 def run_opener_sequence():
     # Load config
@@ -196,6 +227,9 @@ def run_opener_sequence():
         client_col = _find_col(fieldnames, "Client Name")
         rows = list(reader)
         log_step(f"Loaded CRM leads from {crm_path}. Total rows: {len(rows)} | Client column: {client_col}")
+    if not rows:
+        print(f"⚠️ No leads found in CRM file: {crm_path}")
+        return
 
     # Build normalized set/map of client names present
     clients_present = {}
@@ -212,7 +246,8 @@ def run_opener_sequence():
 
     # Prompt until a valid client is entered
     while True:
-        client_name_display = input("🔍 Enter the client name to run outreach for: ").strip()
+        print("🔍 Enter the client name to run outreach for:")
+        client_name_display = input().strip()
         client_name_norm = _norm(client_name_display)
         if client_name_norm in clients_present:
             # preserve the exact casing from the CSV
@@ -223,11 +258,13 @@ def run_opener_sequence():
     log_step(f"Selected client: {client_name_display}")
 
     # Optional interactive testing mode
-    interactive_mode = input("🧪 Interactive test mode? (y/N): ").strip().lower().startswith("y")
+    print("🧪 Interactive test mode? (y/N):")
+    interactive_mode = input().strip().lower().startswith("y")
     sender_override = None
     auto_send_rest = False
     if interactive_mode:
-        override_inp = input("✉️  (Optional) Force send from which sender email? Leave blank to keep rotation: ").strip()
+        print("✉️  (Optional) Force send from which sender email? Leave blank to keep rotation:")
+        override_inp = input().strip()
         if override_inp:
             sender_override = override_inp
 
@@ -385,7 +422,8 @@ def run_opener_sequence():
             print(f"From: {inbox_email}")
             print(f"Subject: {clean_subject}")
             print(f"Body (first 500 chars):\n{preview}\n")
-            choice = input("Send this email? [y]es / [s]kip / [q]uit: ").strip().lower()
+            print("Send this email? [y]es / [s]kip / [q]uit:")
+            choice = input().strip().lower()
             if choice == "q":
                 raise KeyboardInterrupt("User aborted in interactive mode.")
             if choice != "y":
@@ -399,7 +437,7 @@ def run_opener_sequence():
         print("=== END DEBUG ===")
 
         log_step(f"Ready to send email to {email} from {inbox_email}.")
-        success, sender_used = send_email(email, clean_subject, clean_body, sender_override=inbox_email)
+        success, sender_used, thread_id, thread_url = send_email(email, clean_subject, clean_body, sender_override=inbox_email)
         if not success:
             log_step("Email failed to send; marking bounce status.")
             return {"ok": False, "error": "send_failed"}
@@ -421,11 +459,15 @@ def run_opener_sequence():
         lead["Opener Time Sent"] = _now.strftime("%H:%M:%S")
         lead["Opener Date Sent"] = _now.strftime("%Y-%m-%d")
 
-        # Store Gmail thread link in single column for follow-ups
-        thread_url = lead.get("Gmail Thread URL") or lead.get("Gmail Thread Link") or lead.get("Gmail Thread ID") or None
-        lead["Email Thread Thread"] = thread_url or ""
-        if thread_url:
-            print(f"🔗 Gmail thread URL saved: {thread_url}")
+        # Store Gmail thread link/ID in single column for follow-ups
+        if not thread_url and thread_id:
+            # Construct a Gmail UI URL as a fallback if only threadId provided (assumes primary account index 0)
+            thread_url = f"https://mail.google.com/mail/u/0/#inbox/{thread_id}"
+        existing_thread = lead.get("Gmail Thread URL") or lead.get("Gmail Thread Link") or lead.get("Gmail Thread ID")
+        final_thread_val = thread_url or existing_thread or thread_id or ""
+        lead["Email Thread Thread"] = final_thread_val
+        if final_thread_val:
+            print(f"🔗 Gmail thread saved: {final_thread_val}")
 
         # Persist the opener fields to CSV immediately
         try:

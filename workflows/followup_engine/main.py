@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from pathlib import Path
-import sys, json
+import sys, json, argparse
 from datetime import datetime
 
 # --- imports from your engine package ---
@@ -31,6 +31,9 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 SETTINGS_DIR = ROOT / "engine" / "settings"
+
+# Dry-run toggle (set before main runs)
+DRY_RUN = False
 
 
 def _load_json(name: str):
@@ -100,10 +103,11 @@ def main() -> int:
 
         # 3) Skip if watcher marked as replied → pause this lead
         if is_replied(row, FIELDS):
-            set_status(row, FIELDS, "Paused")
-            save_row(csv_path, headers, row)
+            if not DRY_RUN:
+                set_status(row, FIELDS, "Paused")
+                save_row(csv_path, headers, row)
             log_action(client=client, lead=lead_id, followup=None, inbox=None,
-                       result={"status": "skip", "reason": "replied"})
+                       result={"status": "skip", "reason": "replied", "dry_run": DRY_RUN})
             continue
 
         # 4) Skip non-safe deliverability
@@ -150,31 +154,37 @@ def main() -> int:
         generic = draft_generic(followup_num=next_n, context=ctx)
         subject, body = personalize(generic, row, FIELDS, followup_num=next_n)
 
-        # 9) Mark Pending before send (so you can observe mid-run state if interrupted)
-        set_status(row, FIELDS, "Pending")
-        save_row(csv_path, headers, row)
+        # 9) Mark Pending before send (skip in DRY_RUN)
+        if not DRY_RUN:
+            set_status(row, FIELDS, "Pending")
+            save_row(csv_path, headers, row)
 
-        # 10) Send in same thread if we have a link; else start new and write it back
-        send_res = send_followup(
-            inbox=inbox,
-            to=lead_id,
-            subject=subject,
-            body=body,
-            thread_link=thread_link,
-        )
+        # 10) Send (or simulate in DRY_RUN)
+        if DRY_RUN:
+            send_res = {"status": "ok", "sent_at": now_iso(), "dry_run": True, "thread_link": thread_link}
+            print(f"[DRY RUN] Would send FU{next_n} to {lead_id} via {inbox} in thread {thread_link}")
+        else:
+            send_res = send_followup(
+                inbox=inbox,
+                to=lead_id,
+                subject=subject,
+                body=body,
+                thread_link=thread_link,
+            )
+            # Persist thread link if newly created (normally shouldn't happen due to thread guard)
+            new_thread = send_res.get("thread_link")
+            if new_thread and not get(row, thread_col):
+                setf(row, thread_col, new_thread)
 
-        # Persist thread link if newly created
-        new_thread = send_res.get("thread_link")
-        if new_thread and not get(row, thread_col):
-            setf(row, thread_col, new_thread)
-
-        # 11) Persist CRM updates (Sent, advance stage, timestamps, followup fields)
+        # 11) Persist CRM updates (only on real send success; skip in DRY_RUN)
         status = send_res.get("status", "ok")
-        if status == "ok":
+        if status == "ok" and not DRY_RUN:
+            print(f"[MAIN] Send succeeded for {lead_id}; updating CRM.")
             set_status(row, FIELDS, "Sent")
             advance_stage(row, FIELDS, next_n)
             # Dual timestamp columns
-            write_last_sent_timestamps(row, FIELDS, now_iso())
+            sent_when = send_res.get("sent_at") or now_iso()
+            write_last_sent_timestamps(row, FIELDS, sent_when)
             # Per-followup fields: subject/body/time/date/bounce
             write_per_followup_fields(
                 row,
@@ -182,15 +192,12 @@ def main() -> int:
                 next_n,
                 subject=subject,
                 body=body,
-                send_dt=send_res.get("sent_at"),
+                send_dt=sent_when,
                 bounce=send_res.get("bounce_status"),
             )
+            save_row(csv_path, headers, row)
         else:
-            # If skipped or error, keep Messaging Status as Pending to retry later;
-            # optionally set to Paused on hard errors.
-            pass
-
-        save_row(csv_path, headers, row)
+            print(f"[MAIN] Skipping CRM update for {lead_id} (dry run or send failed).")
 
         # 12) Audit
         log_action(client=client, lead=lead_id, followup=next_n, inbox=inbox, result=send_res)
@@ -201,4 +208,22 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # CLI flag + interactive prompt for DRY_RUN
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true", help="Run in dry run mode (no sends, no CRM updates)")
+    cli_args, unknown = parser.parse_known_args()
+    if cli_args.dry_run:
+        DRY_RUN = True
+        print("[INIT] DRY RUN enabled via --dry-run. No emails will be sent, no CRM updates will be written.")
+    else:
+        try:
+            choice = input("👉 Run in DRY RUN mode? (y/N): ").strip().lower()
+        except EOFError:
+            choice = ""
+        if choice == "y":
+            DRY_RUN = True
+            print("[INIT] DRY RUN enabled. No emails will be sent, no CRM updates will be written.")
+        else:
+            print("[INIT] Live mode. Emails will be sent and CRM will be updated.")
+
     sys.exit(main())
