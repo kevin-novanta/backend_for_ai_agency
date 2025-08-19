@@ -4,6 +4,7 @@ import random
 import traceback
 from typing import Sequence, Dict
 
+
 import sys
 import os
 
@@ -11,6 +12,28 @@ import os
 LOG_PATH = os.path.expanduser("/Users/kevinnovanta/backend_for_ai_agency/workflows/followup_engine/gmail_watch/utils/gmail_watcher.log")
 sys.stdout = open(LOG_PATH, "a")
 sys.stderr = open(LOG_PATH, "a")
+
+# ---- Safe trim_log import & helper ----
+try:
+    # package-relative preferred
+    from ..utils.trim_log import trim_log  # type: ignore
+except Exception:
+    try:
+        # absolute fallback (when run as a module from repo root)
+        from workflows.followup_engine.gmail_watch.utils.trim_log import trim_log  # type: ignore
+    except Exception:
+        def trim_log(*_args, **_kwargs):  # type: ignore
+            print("[runner] WARNING: trim_log unavailable (import failed)")
+
+
+def _trim_log_safely():
+    """Best-effort log trimming with verbose prints for debugging."""
+    try:
+        print(f"[runner] DEBUG: invoking trim_log on {LOG_PATH}")
+        trim_log(log_path=LOG_PATH, max_lines=10000, keep_last=5000)
+        print("[runner] DEBUG: trim_log completed")
+    except Exception:
+        print("[runner] ERROR: trim_log raised an exception; continuing")
 
 from ..Steps.poll_inbox import poll_ids
 from ..Steps.classify_message import classify
@@ -257,6 +280,9 @@ def run_loop(inboxes: Sequence[str], interval_sec: int | None = None, jitter_sec
                 )
             except Exception:
                 logger.error("[loop] Fatal error in inbox loop for %s: %s", inbox, traceback.format_exc())
+        # After processing all inboxes this cycle, ensure log trimming runs once per cycle
+        print("[runner] DEBUG: cycle complete; checking log size for trimming…")
+        _trim_log_safely()
         sleep_for = interval_sec + random.randint(0, max(0, jitter_sec))
         time.sleep(sleep_for)
 
@@ -370,16 +396,6 @@ if __name__ == "__main__":
     print(f"[runner __main__] Mode={args.mode} Inboxes={inboxes} "
           f"Poll={args.poll_minutes}m Lookback={args.lookback_minutes}m StrictOwner={STRICT_OWNER} EnforceThread={ENFORCE_THREAD_MATCH}")
 
-    # Ensure log does not grow unbounded
-    # Prefer package-relative import; fall back to absolute; finally no-op to keep runtime going.
-    try:
-        from ..utils.trim_log import trim_log  # type: ignore[reportMissingImports]
-    except Exception:
-        try:
-            from workflows.followup_engine.gmail_watch.utils.trim_log import trim_log  # type: ignore[reportMissingImports]
-        except Exception:
-            def trim_log(*_args, **_kwargs):  # fallback no-op
-                print("[runner] WARNING: trim_log unavailable (import failed)")
 
     if args.mode == "tick":
         results = {}
@@ -387,7 +403,8 @@ if __name__ == "__main__":
             print(f"\n=== ONE-TICK for {ib} ===")
             results[ib] = run_once_for_inbox(ib, lookback_minutes=args.lookback_minutes)
             print(f"[runner __main__] {ib} -> {results[ib]}")
-            trim_log()
+            print(f"[runner __main__] DEBUG: Checking log size before trim at: {LOG_PATH}")
+            _trim_log_safely()
     else:
         # loop mode
         run_loop(inboxes, interval_sec=args.interval, jitter_sec=args.jitter, lookback_minutes=args.lookback_minutes)

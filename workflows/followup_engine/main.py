@@ -1,49 +1,36 @@
-
-
 #!/usr/bin/env python3
-"""
-Follow-up Orchestrator (v1)
-
-- Prompts for client
-- Loads CRM (all clients), filters to client
-- Skips leads with blank Sequence Stage
-- Skips non-safe deliverability
-- Honors reply guard + send window + delay rules
-- Locks Owner / Assigned To to a single inbox
-- Builds LLM context from opener + business fields
-- Generates generic draft → personalizes → sends in same thread
-- Updates Messaging Status, Sequence Stage, timestamps (both spellings)
-- Writes per-followup columns (F1–F6 subject/body/time/date/bounce)
-- Audits each action
-"""
 
 from pathlib import Path
 import sys, json
 from datetime import datetime
 
-# --- imports from your subscripts ---
-from subscripts.io.load_crm import load_crm
-from subscripts.io.save_crm import save_row
-from subscripts.filters.by_client import filter_by_client
-from subscripts.filters.eligible_for_run import eligible_rows
-from subscripts.gating.responded_guard import is_replied
-from subscripts.gating.send_window import allowed_now
-from subscripts.selectors.next_touch import compute_next_followup_num
-from subscripts.selectors.owner_inbox import resolve_owner_inbox
-from subscripts.utils.crm_helpers import get, setf
-from subscripts.utils.dates import now_iso, delay_ok
-from subscripts.generation.build_context import build_context
-from subscripts.generation.generic_writer import draft_generic
-from subscripts.generation.personalize_writer import personalize
-from subscripts.sending.gmail_send import send_followup
-from subscripts.updates.messaging_status import set_status
-from subscripts.updates.stage_advance import advance_stage
-from subscripts.updates.timestamps import write_last_sent_timestamps
-from subscripts.updates.per_followup_fields import write_per_followup_fields
-from subscripts.updates.audit_log import log_action
+# --- imports from your engine package ---
+from engine.subscripts.io.load_crm import load_crm
+from engine.subscripts.io.save_crm import save_row
+from engine.subscripts.filters.by_client import filter_by_client
+from engine.subscripts.filters.eligible_for_run import eligible_rows
+from engine.subscripts.gating.responded_guard import is_replied
+from engine.subscripts.gating.send_window import allowed_now
+from engine.subscripts.gating.thread_guard import require_thread_link
+from engine.subscripts.selectors.next_touch import compute_next_followup_num
+from engine.subscripts.selectors.owner_inbox import resolve_owner_inbox
+from engine.subscripts.utils.crm_helpers import get, setf
+from engine.subscripts.utils.dates import now_iso, delay_ok
+from engine.subscripts.generation.build_context import build_context
+from engine.subscripts.generation.generic_writer import draft_generic
+from engine.subscripts.generation.personalize_writer import personalize
+from engine.subscripts.sending.gmail_send import send_followup
+from engine.subscripts.updates.messaging_status import set_status
+from engine.subscripts.updates.stage_advance import advance_stage
+from engine.subscripts.updates.timestamps import write_last_sent_timestamps
+from engine.subscripts.updates.per_followup_fields import write_per_followup_fields
+from engine.subscripts.updates.audit_log import log_action
 
 ROOT = Path(__file__).resolve().parent
-SETTINGS_DIR = ROOT / "settings"
+# Make sure the followup_engine directory is on sys.path so `engine` can be imported
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+SETTINGS_DIR = ROOT / "engine" / "settings"
 
 
 def _load_json(name: str):
@@ -141,6 +128,22 @@ def main() -> int:
 
         # 7) Resolve/lock the sender inbox from Owner / Assigned To
         inbox = resolve_owner_inbox(row, FIELDS)  # may write Owner / Assigned To if blank
+        if not inbox:
+            # No owner assigned → skip this lead per business rule
+            log_action(client=client, lead=lead_id, followup=None, inbox=None,
+                       result={"status": "skip", "reason": "no_owner_assigned"})
+            continue
+
+        # Require an existing opener thread link; otherwise skip this lead
+        ok_thread, info = require_thread_link(row, FIELDS)
+        if not ok_thread:
+            log_action(client=client, lead=lead_id, followup=None, inbox=inbox, result=info)
+            print(f"[MAIN] Skipping {lead_id} — no thread link present.")
+            continue
+
+        # Use the existing thread link from the guard for all downstream steps
+        thread_link = info.get("thread_link")
+        print(f"[MAIN] Using thread link for {lead_id}: {thread_link}")
 
         # 8) Build context and generate copy
         ctx = build_context(row, FIELDS, followup_num=next_n)
@@ -152,7 +155,6 @@ def main() -> int:
         save_row(csv_path, headers, row)
 
         # 10) Send in same thread if we have a link; else start new and write it back
-        thread_link = get(row, thread_col) or None
         send_res = send_followup(
             inbox=inbox,
             to=lead_id,
@@ -163,7 +165,7 @@ def main() -> int:
 
         # Persist thread link if newly created
         new_thread = send_res.get("thread_link")
-        if new_thread and not thread_link:
+        if new_thread and not get(row, thread_col):
             setf(row, thread_col, new_thread)
 
         # 11) Persist CRM updates (Sent, advance stage, timestamps, followup fields)

@@ -1,0 +1,76 @@
+
+
+{
+  "canonical": {
+    "client": "Client Name",
+    "sequence_stage": "Sequence Stage",
+    "messaging_status": "Messaging Status",
+    "owner": "Owner / Assigned To",
+    "thread_link": "Email Thread Link",
+    "last_sent_a": "Last Message Sent Time Stamp",
+    "last_sent_b": "Last Message Sent Timestamp",
+    "email": "Email",
+    "deliverability": "Deliverability",
+    "responded_flag": "Responded?",
+    "replied_flag": "Replied?"
+  },
+  "aliases": {
+    "Client": "Client Name",
+    "Owner/Assigned To": "Owner / Assigned To",
+    "Last Message Sent TimeStamp": "Last Message Sent Time Stamp",
+    "Last Message Sent Time stamp": "Last Message Sent Time Stamp",
+    "Replied?": "Responded?"
+  },
+  "per_followup_fields": {
+    "1": {
+      "subject": "Follow Up 1 Subject Sent",
+      "body": "Follow Up 1 Body Sent",
+      "time": "Follow Up 1 Time Sent",
+      "date": "Follow Up 1 Date Sent",
+      "bounce": "Bounce Status for Follow Up 1"
+    },
+    "2": {
+      "subject": "Follow Up 2 Subject Sent",
+      "body": "Follow Up 2 Body Sent",
+      "time": "Follow Up 2 Time Sent",
+      "date": "Follow Up 2 Date Sent",
+      "bounce": "Bounce Status for Follow Up 2"
+    },
+    "3": {
+      "subject": "Follow Up 3 Subject Sent",
+      "body": "Follow Up 3 Body Sent",
+      "time": "Follow Up 3 Time Sent",
+      "date": "Follow Up 3 Date Sent",
+      "bounce": "Bounce Status for Follow Up 3"
+    },
+    "4": {
+      "subject": "Follow Up 4 Subject Sent",
+      "body": "Follow Up 4 Body Sent",
+      "time": "Follow Up 4 Time Sent",
+      "date": "Follow Up 4 Date Sent",
+      "bounce": "Bounce Status for Follow Up 4"
+    },
+    "5": {
+      "subject": "Follow Up 5 Subject Sent",
+      "body": "Follow Up 5 Body Sent",
+      "time": "Follow Up 5 Time Sent",
+      "date": "Follow Up 5 Date Sent",
+      "bounce": "Bounce Status for Follow Up 5"
+    },
+    "6": {
+      "subject": "Follow Up 6 Subject Sent",
+      "body": "Follow Up 6 Body Sent",
+      "time": "Follow Up 6 Time Sent",
+      "date": "Follow Up 6 Date Sent",
+      "bounce": "Bounce Status for Follow Up 6"
+    },
+    "opener": {
+      "sender": "Opener Sender Used",
+      "subject": "Opener Subject Sent",
+      "body": "Opener Body Sent",
+      "time": "Opener Time Sent",
+      "date": "Opener Date Sent",
+      "bounce": "Bounce Status for Opener"
+    }
+  }
+}
