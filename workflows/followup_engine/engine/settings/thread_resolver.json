@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "max_candidates": 10,
+  "use_subject": true,
+  "use_body_fingerprint": true,
+  "use_opener_date": true
+}

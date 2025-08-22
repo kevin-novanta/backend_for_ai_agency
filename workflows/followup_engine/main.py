@@ -11,7 +11,7 @@ from engine.subscripts.filters.by_client import filter_by_client
 from engine.subscripts.filters.eligible_for_run import eligible_rows
 from engine.subscripts.gating.responded_guard import is_replied
 from engine.subscripts.gating.send_window import allowed_now
-from engine.subscripts.gating.thread_guard import require_thread_link
+from engine.subscripts.gating.thread_guard import thread_guard
 from engine.subscripts.selectors.next_touch import compute_next_followup_num
 from engine.subscripts.selectors.owner_inbox import resolve_owner_inbox
 from engine.subscripts.utils.crm_helpers import get, setf
@@ -138,14 +138,20 @@ def main() -> int:
                        result={"status": "skip", "reason": "no_owner_assigned"})
             continue
 
-        # Require an existing opener thread link; otherwise skip this lead
-        ok_thread, info = require_thread_link(row, FIELDS)
+        # Require a thread link (existing or recovered); otherwise skip this lead
+        ok_thread, info = thread_guard(
+            row,
+            FIELDS,
+            inbox=inbox,
+            dry_run=DRY_RUN,
+            settings_dir=SETTINGS_DIR,
+        )
         if not ok_thread:
             log_action(client=client, lead=lead_id, followup=None, inbox=inbox, result=info)
-            print(f"[MAIN] Skipping {lead_id} — no thread link present.")
+            print(f"[MAIN] Skipping {lead_id} — {info.get('reason', 'no_thread_link')}.")
             continue
 
-        # Use the existing thread link from the guard for all downstream steps
+        # Use the thread link for all downstream steps
         thread_link = info.get("thread_link")
         print(f"[MAIN] Using thread link for {lead_id}: {thread_link}")
 
