@@ -10,8 +10,9 @@ import os
 
 # Redirect stdout and stderr to log file
 LOG_PATH = os.path.expanduser("/Users/kevinnovanta/backend_for_ai_agency/workflows/followup_engine/gmail_watch/utils/gmail_watcher.log")
-sys.stdout = open(LOG_PATH, "a")
-sys.stderr = open(LOG_PATH, "a")
+os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+sys.stdout = open(LOG_PATH, "a", buffering=1, encoding="utf-8")
+sys.stderr = open(LOG_PATH, "a", buffering=1, encoding="utf-8")
 
 # ---- Safe trim_log import & helper ----
 try:
@@ -20,10 +21,38 @@ try:
 except Exception:
     try:
         # absolute fallback (when run as a module from repo root)
-        from workflows.followup_engine.gmail_watch.utils.trim_log import trim_log  # type: ignore
+        from workflows.followup_engine.gmail_watch.utils.log_trim import trim_log  # type: ignore
     except Exception:
-        def trim_log(*_args, **_kwargs):  # type: ignore
-            print("[runner] WARNING: trim_log unavailable (import failed)")
+        from collections import deque
+        def trim_log(*, log_path: str, max_lines: int = 10000, keep_last: int = 5000):  # type: ignore
+            try:
+                # Fast size guard
+                try:
+                    with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+                        # Count up to max_lines + 1 quickly and bail early if small
+                        for i, _ in enumerate(f, 1):
+                            if i > max_lines:
+                                break
+                        else:
+                            # File ended before exceeding max_lines
+                            return
+                except FileNotFoundError:
+                    return
+
+                # Keep only the last `keep_last` lines using a deque
+                dq = deque(maxlen=max(1, keep_last))
+                with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        dq.append(line)
+
+                tmp_path = f"{log_path}.tmp"
+                with open(tmp_path, "w", encoding="utf-8") as out:
+                    out.writelines(dq)
+
+                os.replace(tmp_path, log_path)
+                print(f"[runner] INFO: trimmed log to last {len(dq)} lines at {log_path}")
+            except Exception as _e:
+                print(f"[runner] ERROR: trim_log fallback failed: {_e}")
 
 
 def _trim_log_safely():
